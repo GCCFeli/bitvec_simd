@@ -175,7 +175,7 @@ impl BitVec {
         if bytes > 0 || bits > 0 {
             let slice = (0..bytes as u64)
                 .map(|_| u64::MAX)
-                .chain([(u64::MAX >> (u64::BITS - bits as u32) << (u64::BITS - bits as u32))])
+                .chain([(u64::MAX << (u64::BITS - bits as u32) >> (u64::BITS - bits as u32))])
                 .chain((0..(BIT_WIDTH as u32 / u64::BITS) - bytes as u32 - 1).map(|_| 0))
                 .collect::<Vec<_>>();
             assert_eq!(slice.len(), 4);
@@ -209,7 +209,7 @@ impl BitVec {
         let mut nbits = 0;
         for b in i {
             if b {
-                current_slice[nbits % BIT_WIDTH / 64] |= 1 << (u64::BITS - (nbits % 64) as u32 - 1);
+                current_slice[nbits % BIT_WIDTH / 64] |= 1 << (nbits % 64);
             }
             nbits += 1;
             if nbits % BIT_WIDTH == 0 {
@@ -239,6 +239,40 @@ impl BitVec {
             bv.set(*i, true);
         }
         bv
+    }
+
+    /// Initialize from a raw u64 slice.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// use bitvec_simd::BitVec;
+    ///
+    /// let bitvec = BitVec::from_slice_raw(&[3]);
+    /// assert_eq!(bitvec.get(0), Some(true));
+    /// assert_eq!(bitvec.get(1), Some(true));
+    /// ```
+    pub fn from_slice_raw(slice: &[u64]) -> Self {
+        let iter = &mut slice.iter();
+        let mut storage = Vec::with_capacity((slice.len() + 3) / 4);
+
+        while let Some(a0) = iter.next() {
+            let a1 = match iter.next() {
+                Some(value) => value,
+                _ => &0u64,
+            };
+            let a2 = match iter.next() {
+                Some(value) => value,
+                _ => &0u64,
+            };
+            let a3 = match iter.next() {
+                Some(value) => value,
+                _ => &0u64,
+            };
+            storage.push(BitContainer::from([*a0, *a1, *a2, *a3]));
+        }
+
+        Self { storage, nbits: slice.len() * 64 }
     }
 
     /// Max number of elements that this bitvec can have.
@@ -272,7 +306,7 @@ impl BitVec {
             self.nbits = index + 1;
         }
         let mut arr = self.storage[i].to_array();
-        arr[bytes] = set_bit(flag, arr[bytes], u64::BITS - bits as u32 - 1);
+        arr[bytes] = set_bit(flag, arr[bytes], bits as u32);
         self.storage[i] = BitContainer::from(arr);
     }
 
@@ -298,7 +332,7 @@ impl BitVec {
             None
         } else {
             let (index, bytes, bits) = bit_to_len(index);
-            Some((self.storage[index].to_array()[bytes] & (1u64 << (u64::BITS - bits as u32 - 1))) > 0)
+            Some((self.storage[index].to_array()[bytes] & (1u64 << bits)) > 0)
         }
     }
 
@@ -324,7 +358,7 @@ impl BitVec {
             panic!("index out of bounds {} > {}", index, self.nbits);
         } else {
             let (index, bytes, bits) = bit_to_len(index);
-            (self.storage[index].to_array()[bytes] & (1u64 << (u64::BITS - bits as u32 - 1))) > 0
+            (self.storage[index].to_array()[bytes] & (1u64 << bits)) > 0
         }
     }
 
@@ -379,7 +413,7 @@ impl BitVec {
             assert_eq!(storage.len(), i + 1);
             if let Some(s) = storage.get_mut(i) {
                 let mut arr = s.to_array();
-                arr[bytes] = arr[bytes] >> (u64::BITS - bits as u32) << (u64::BITS - bits as u32);
+                arr[bytes] = arr[bytes] << (u64::BITS - bits as u32) >> (u64::BITS - bits as u32);
                 for index in (bytes + 1)..4 {
                     arr[index] = 0;
                 }
@@ -483,12 +517,8 @@ impl From<BitVec> for Vec<bool> {
     fn from(v: BitVec) -> Self {
         v.storage
             .into_iter()
-            .flat_map(|x| {
-                let mut slice = [0u64; 4];
-                slice = x.into();
-                slice
-            })
-            .flat_map(|x| (0..u64::BITS).map(move |i| (x >> (u64::BITS - i - 1)) & 1 > 0))
+            .flat_map(|x| Into::<[u64; 4]>::into(x))
+            .flat_map(|x| (0..u64::BITS).map(move |i| (x >> i) & 1 > 0))
             .take(v.nbits)
             .collect()
     }
@@ -498,12 +528,8 @@ impl From<BitVec> for Vec<usize> {
     fn from(v: BitVec) -> Self {
         v.storage
             .into_iter()
-            .flat_map(|x| {
-                let mut slice = [0u64; 4];
-                slice = x.into();
-                slice
-            })
-            .flat_map(|x| (0..u64::BITS).map(move |i| (x >> (u64::BITS - i - 1)) & 1 > 0))
+            .flat_map(|x| Into::<[u64; 4]>::into(x))
+            .flat_map(|x| (0..u64::BITS).map(move |i| (x >> i) & 1 > 0))
             .take(v.nbits)
             .enumerate()
             .filter(|(_, b)| *b)
@@ -730,4 +756,11 @@ fn test_bitvec_creation() {
             assert_eq!(bitvec.get(i), None);
         }
     }
+
+    let bitvec = BitVec::from_slice_raw(&[3]);
+    assert_eq!(bitvec.get(0), Some(true));
+    assert_eq!(bitvec.get(1), Some(true));
+    assert_eq!(bitvec.get(2), Some(false));
+    assert_eq!(bitvec.get(63), Some(false));
+    assert_eq!(bitvec.get(64), None);
 }

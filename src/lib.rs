@@ -275,10 +275,10 @@ impl BitVec {
         Self { storage, nbits: slice.len() * 64 }
     }
 
-    /// Max number of elements that this bitvec can have.
+    /// Length of this bitvec.
     ///
     /// To get the number of elements, use `count_ones`
-    pub fn capacity(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.nbits
     }
 

@@ -150,7 +150,7 @@ impl BitVec {
     /// use bitvec_simd::BitVec;
     ///
     /// let bitvec = BitVec::zeros(10);
-    /// assert_eq!(bitvec.capacity(), 10);
+    /// assert_eq!(bitvec.len(), 10);
     /// ```
     pub fn zeros(nbits: usize) -> Self {
         let len = (nbits + BIT_WIDTH - 1) / BIT_WIDTH;
@@ -165,7 +165,7 @@ impl BitVec {
     /// use bitvec_simd::BitVec;
     ///
     /// let bitvec = BitVec::ones(10);
-    /// assert_eq!(bitvec.capacity(), 10);
+    /// assert_eq!(bitvec.len(), 10);
     /// ```
     pub fn ones(nbits: usize) -> Self {
         let (len, bytes, bits) = bit_to_len(nbits);
@@ -192,11 +192,11 @@ impl BitVec {
     /// use bitvec_simd::BitVec;
     ///
     /// let bitvec = BitVec::from_bool_iterator((0..10).map(|x| x % 2 == 0));
-    /// assert_eq!(bitvec.capacity(), 10);
+    /// assert_eq!(bitvec.len(), 10);
     /// assert_eq!(<BitVec as Into<Vec<bool>>>::into(bitvec), vec![true, false, true, false, true, false, true, false, true, false]);
     ///
     /// let bitvec = BitVec::from_bool_iterator((0..1000).map(|x| x < 50));
-    /// assert_eq!(bitvec.capacity(), 1000);
+    /// assert_eq!(bitvec.len(), 1000);
     /// assert_eq!(bitvec.get(49), Some(true));
     /// assert_eq!(bitvec.get(50), Some(false));
     /// assert_eq!(bitvec.get(999), Some(false));
@@ -283,17 +283,17 @@ impl BitVec {
     }
 
     /// Remove or add `index` to the set.
-    /// If index > self.capacity, the bitvec will be expanded to `index`.
+    /// If index > self.len, the bitvec will be expanded to `index`.
     /// Example:
     ///
     /// ```rust
     /// use bitvec_simd::BitVec;
     ///
     /// let mut bitvec = BitVec::zeros(10);
-    /// assert_eq!(bitvec.capacity(), 10);
+    /// assert_eq!(bitvec.len(), 10);
     /// bitvec.set(15, true);  
-    /// // now 15 has been added to the set, its total capacity is 16.
-    /// assert_eq!(bitvec.capacity(), 16);
+    /// // now 15 has been added to the set, its total len is 16.
+    /// assert_eq!(bitvec.len(), 16);
     /// assert_eq!(bitvec.get(15), Some(true));
     /// assert_eq!(bitvec.get(14), Some(false));
     /// ```
@@ -302,7 +302,7 @@ impl BitVec {
         if self.nbits <= index {
             let i = if bytes > 0 || bits > 0 { i + 1 } else { i };
             self.storage
-                .extend((0..i - self.storage.len()).map(|_| BitContainer::splat(0)));
+                .extend((0..i - self.storage.len()).map(move |_| BitContainer::ZERO));
             self.nbits = index + 1;
         }
         let mut arr = self.storage[i].to_array();
@@ -310,11 +310,38 @@ impl BitVec {
         self.storage[i] = BitContainer::from(arr);
     }
 
+    pub fn set_all_false(&mut self) {
+        self.storage.iter_mut().for_each(move |x| *x = BitContainer::ZERO);
+    }
+
+    pub fn set_all_true(&mut self) {
+        let (_, bytes, bits) = bit_to_len(self.nbits);
+        self.storage.iter_mut().for_each(move |x| *x = BitContainer::splat(u64::MAX));
+        if bytes > 0 || bits > 0 {
+            let slice = (0..bytes as u64)
+                .map(|_| u64::MAX)
+                .chain([(u64::MAX << (u64::BITS - bits as u32) >> (u64::BITS - bits as u32))])
+                .chain((0..(BIT_WIDTH as u32 / u64::BITS) - bytes as u32 - 1).map(|_| 0))
+                .collect::<Vec<_>>();
+            assert_eq!(slice.len(), 4);
+
+            // unwrap here is safe since bytes > 0 || bits > 0 => self.nbits > 0
+            *(self.storage.last_mut().unwrap()) = BitContainer::from(&slice[0..4]);
+        }
+    }
+
+    pub fn set_all(&mut self, flag: bool) {
+        match flag {
+            true => self.set_all_true(),
+            false => self.set_all_false(),
+        }
+    }
+
     /// Check if `index` exists in current set.
     ///
     /// * If exists, return `Some(true)`
-    /// * If index < current.capacity and element doesn't exist, return `Some(false)`.
-    /// * If index >= current.capacity, return `None`.
+    /// * If index < current.len and element doesn't exist, return `Some(false)`.
+    /// * If index >= current.len, return `None`.
     ///
     /// Examlpe:
     ///
@@ -340,7 +367,7 @@ impl BitVec {
     ///
     /// * If exists, return `true`.
     /// * If doesn't exist, return false.
-    /// * If index >= current.capacity, panic.
+    /// * If index >= current.len, panic.
     ///
     ///
     /// Examlpe:
@@ -404,7 +431,7 @@ impl BitVec {
     // not should make sure bits > nbits is 0
     /// inverse every bits in the vector.
     ///
-    /// If your bitvec have capacity `1_000` and contains `[1,5]`,
+    /// If your bitvec have len `1_000` and contains `[1,5]`,
     /// after inverse it will contains `0, 2..=4, 6..=999`
     pub fn inverse(self) -> Self {
         let (i, bytes, bits) = bit_to_len(self.nbits);
@@ -460,7 +487,7 @@ impl BitVec {
             .any(|x| x.to_array().iter().map(|a| a.count_ones()).sum::<u32>() > 0)
     }
 
-    /// return true if contains self.capacity elements
+    /// return true if contains self.len elements
     pub fn all(&self) -> bool {
         self.count_ones() == self.nbits
     }
@@ -476,7 +503,7 @@ impl BitVec {
         !self.any()
     }
 
-    /// Consume self and generate a `Vec<bool>` with length == self.capacity().
+    /// Consume self and generate a `Vec<bool>` with length == self.len().
     ///
     /// Example:
     ///
@@ -763,4 +790,26 @@ fn test_bitvec_creation() {
     assert_eq!(bitvec.get(2), Some(false));
     assert_eq!(bitvec.get(63), Some(false));
     assert_eq!(bitvec.get(64), None);
+}
+
+
+#[test]
+fn test_bitvec_set_all() {
+    let mut bitvec = BitVec::zeros(1000);
+    bitvec.set_all(true);
+    for i in 0..1500 {
+        if i < 1000 {
+            assert_eq!(bitvec.get(i), Some(true));
+        } else {
+            assert_eq!(bitvec.get(i), None);
+        }
+    }
+    bitvec.set_all(false);
+    for i in 0..1500 {
+        if i < 1000 {
+            assert_eq!(bitvec.get(i), Some(false));
+        } else {
+            assert_eq!(bitvec.get(i), None);
+        }
+    }
 }

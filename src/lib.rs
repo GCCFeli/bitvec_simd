@@ -310,10 +310,12 @@ impl BitVec {
         self.storage[i] = BitContainer::from(arr);
     }
 
+    /// Set all items in bitvec to false
     pub fn set_all_false(&mut self) {
         self.storage.iter_mut().for_each(move |x| *x = BitContainer::ZERO);
     }
 
+    /// Set all items in bitvec to true
     pub fn set_all_true(&mut self) {
         let (_, bytes, bits) = bit_to_len(self.nbits);
         self.storage.iter_mut().for_each(move |x| *x = BitContainer::splat(u64::MAX));
@@ -330,6 +332,7 @@ impl BitVec {
         }
     }
 
+    /// Set all items in bitvec to flag
     pub fn set_all(&mut self, flag: bool) {
         match flag {
             true => self.set_all_true(),
@@ -478,6 +481,38 @@ impl BitVec {
             }
             )
             .sum::<u32>() as usize
+    }
+
+    /// Count the number of elements existing in this bitvec, before the specified index.
+    /// Panics if index is invalid.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// use bitvec_simd::BitVec;
+    /// 
+    /// let bitvec: BitVec = (0..10_000).map(|x| x%2==0).into();
+    /// assert_eq!(bitvec.count_ones_before(5000), 2500);
+    ///
+    /// let bitvec: BitVec = (0..30_000).map(|x| x%3==0).into();
+    /// assert_eq!(bitvec.count_ones_before(10000), 3334);
+    /// ```
+    pub fn count_ones_before(&self, index: usize) -> usize {
+        assert!(index <= self.nbits);
+        let (i, bytes, bits) = bit_to_len(index - 1);
+        let mut ones = self.storage.iter().take(i).map(|x| {
+            x.to_array().iter().map(|a| a.count_ones()).sum::<u32>()
+        }).sum::<u32>();
+        if bytes > 0 || bits > 0 {
+            // Safe unwrap here
+            let arr = self.storage.iter().skip(i).next().unwrap().to_array();
+            ones += arr.iter().take(bytes).map(|x| x.count_ones()).sum::<u32>();
+            if bits > 0 {
+                let x = arr.iter().skip(bytes).next().unwrap();
+                ones += (x & ((1u64 << (bits + 1)) - 1)).count_ones();
+            }
+        }
+        ones as usize
     }
 
     /// return true if contains at least 1 element
@@ -655,8 +690,10 @@ fn test_bit_to_len() {
 fn test_bit_vec_count_ones() {
     let mut bitvec = BitVec::ones(1000);
     assert_eq!(bitvec.count_ones(), 1000);
+    assert_eq!(bitvec.count_ones_before(500), 500);
     bitvec.set(1500, true);
     assert_eq!(bitvec.count_ones(), 1001);
+    assert_eq!(bitvec.count_ones_before(500), 500);
 }
 
 #[test]

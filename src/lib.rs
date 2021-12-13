@@ -285,8 +285,71 @@ impl BitVec {
     /// Length of this bitvec.
     ///
     /// To get the number of elements, use `count_ones`
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// use bitvec_simd::BitVec;
+    ///
+    /// let bitvec = BitVec::ones(3);
+    /// assert_eq!(bitvec.len(), 3);
+    /// ```
     pub fn len(&self) -> usize {
         self.nbits
+    }
+
+    /// Resize this bitvec to new length in-place.
+    /// If new length is greater than current length, 0 will be filled.
+    /// 
+    /// Example:
+    ///
+    /// ```rust
+    /// use bitvec_simd::BitVec;
+    ///
+    /// let mut bitvec = BitVec::ones(3);
+    /// bitvec.resize(5);
+    /// assert_eq!(bitvec.len(), 5);
+    /// bitvec.resize(2);
+    /// assert_eq!(bitvec.len(), 2);
+    /// ```
+    pub fn resize(&mut self, nbits: usize) {
+        let (mut i, bytes, bits) = bit_to_len(nbits);
+        if bytes > 0 || bits > 0 {
+            i += 1;
+        }
+        self.storage.resize(i, BitContainer::ZERO);
+        if nbits < self.nbits {
+            if bytes > 0 || bits > 0 {
+                // Safe unwrap here
+                let last_item = self.storage.last_mut().unwrap();
+                let mut arr = last_item.to_array();
+                for byte_index in (bytes + 1) .. (BIT_WIDTH / u64::BITS as usize) {
+                    arr[byte_index] = 0;
+                }
+                arr[bytes] = arr[bytes] << (u64::BITS - bits as u32) >> (u64::BITS - bits as u32);
+                *last_item = BitContainer::from(arr);
+            }
+        }
+        self.nbits = nbits;
+    }
+
+    /// Shink this bitvec to new length in-place.
+    /// Panics if new length is greater than original.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// use bitvec_simd::BitVec;
+    ///
+    /// let mut bitvec = BitVec::ones(3);
+    /// bitvec.shrink_to(2);
+    /// assert_eq!(bitvec.len(), 2);
+    /// ```
+    pub fn shrink_to(&mut self, nbits: usize) {
+        if nbits >= self.nbits {
+            panic!("nbits {} should be less than current value {}", nbits, self.nbits);
+        }
+        self.resize(nbits);
     }
 
     /// Remove or add `index` to the set.
@@ -766,6 +829,34 @@ fn test_bit_vec_leading_zeros() {
     bitvec = BitVec::zeros(10);
     bitvec.set(3, true);
     assert_eq!(bitvec.leading_zeros(), 6);
+}
+
+#[test]
+fn test_bit_vec_resize() {
+    let mut bitvec = BitVec::ones(3333);
+    for i in 3333..6666 {
+        bitvec.resize(i);
+        assert_eq!(bitvec.len(), i);
+    }
+    for i in 3333..0 {
+        bitvec.resize(i);
+        assert_eq!(bitvec.len(), i);
+        assert_eq!(bitvec.count_ones(), i);
+    }
+}
+
+#[test]
+fn test_bit_vec_shrink_to() {
+    let mut bitvec = BitVec::ones(3333);
+    bitvec.shrink_to(2222);
+    assert_eq!(bitvec.len(), 2222);
+}
+
+#[test]
+#[should_panic]
+fn test_bit_vec_shrink_to_painc() {
+    let mut bitvec = BitVec::ones(3333);
+    bitvec.shrink_to(4444);
 }
 
 #[test]

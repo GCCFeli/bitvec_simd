@@ -131,7 +131,11 @@ macro_rules! impl_operation {
 // any bits > length of last elem should be set to 0
 #[inline]
 fn bit_to_len(nbits: usize) -> (usize, usize, usize) {
-    (nbits / (BIT_WIDTH as usize), (nbits % (BIT_WIDTH as usize)) / 64, nbits % 64)
+    (
+        nbits / (BIT_WIDTH as usize),
+        (nbits % (BIT_WIDTH as usize)) / 64,
+        nbits % 64,
+    )
 }
 
 #[inline]
@@ -272,7 +276,10 @@ impl BitVec {
             storage.push(BitContainer::from([*a0, *a1, *a2, *a3]));
         }
 
-        Self { storage, nbits: slice.len() * 64 }
+        Self {
+            storage,
+            nbits: slice.len() * u64::BITS as usize,
+        }
     }
 
     /// Length of this bitvec.
@@ -312,13 +319,17 @@ impl BitVec {
 
     /// Set all items in bitvec to false
     pub fn set_all_false(&mut self) {
-        self.storage.iter_mut().for_each(move |x| *x = BitContainer::ZERO);
+        self.storage
+            .iter_mut()
+            .for_each(move |x| *x = BitContainer::ZERO);
     }
 
     /// Set all items in bitvec to true
     pub fn set_all_true(&mut self) {
         let (_, bytes, bits) = bit_to_len(self.nbits);
-        self.storage.iter_mut().for_each(move |x| *x = BitContainer::splat(u64::MAX));
+        self.storage
+            .iter_mut()
+            .for_each(move |x| *x = BitContainer::splat(u64::MAX));
         if bytes > 0 || bits > 0 {
             let slice = (0..bytes as u64)
                 .map(|_| u64::MAX)
@@ -410,12 +421,12 @@ impl BitVec {
     /// ```text
     /// A.difference(B) | B.difference(A) == A ^ B
     /// ```
-    /// 
+    ///
     /// Example:
-    /// 
+    ///
     /// ```rust
     /// use bitvec_simd::BitVec;
-    /// 
+    ///
     /// let bitvec: BitVec = (0 .. 5_000).map(|x| x % 2 == 0).into();
     /// let bitvec2 : BitVec = (0 .. 5_000).map(|x| x % 3 == 0).into();
     /// assert_eq!(bitvec.difference_cloned(&bitvec2) | bitvec2.difference_cloned(&bitvec), bitvec.xor_cloned(&bitvec2));
@@ -459,14 +470,13 @@ impl BitVec {
         }
     }
 
-
     /// Count the number of elements existing in this bitvec.
     ///
     /// Example:
     ///
     /// ```rust
     /// use bitvec_simd::BitVec;
-    /// 
+    ///
     /// let bitvec: BitVec = (0..10_000).map(|x| x%2==0).into();
     /// assert_eq!(bitvec.count_ones(), 5000);
     ///
@@ -476,10 +486,7 @@ impl BitVec {
     pub fn count_ones(&self) -> usize {
         self.storage
             .iter()
-            .map(|x| {
-                x.to_array().iter().map(|a| a.count_ones()).sum::<u32>()
-            }
-            )
+            .map(|x| x.to_array().iter().map(|a| a.count_ones()).sum::<u32>())
             .sum::<u32>() as usize
     }
 
@@ -490,7 +497,7 @@ impl BitVec {
     ///
     /// ```rust
     /// use bitvec_simd::BitVec;
-    /// 
+    ///
     /// let bitvec: BitVec = (0..10_000).map(|x| x%2==0).into();
     /// assert_eq!(bitvec.count_ones_before(5000), 2500);
     ///
@@ -500,9 +507,12 @@ impl BitVec {
     pub fn count_ones_before(&self, index: usize) -> usize {
         assert!(index <= self.nbits);
         let (i, bytes, bits) = bit_to_len(index - 1);
-        let mut ones = self.storage.iter().take(i).map(|x| {
-            x.to_array().iter().map(|a| a.count_ones()).sum::<u32>()
-        }).sum::<u32>();
+        let mut ones = self
+            .storage
+            .iter()
+            .take(i)
+            .map(|x| x.to_array().iter().map(|a| a.count_ones()).sum::<u32>())
+            .sum::<u32>();
         if bytes > 0 || bits > 0 {
             // Safe unwrap here
             let arr = self.storage.iter().skip(i).next().unwrap().to_array();
@@ -513,6 +523,46 @@ impl BitVec {
             }
         }
         ones as usize
+    }
+
+    /// Count the number of leading zeros in this bitvec.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// use bitvec_simd::BitVec;
+    ///
+    /// let mut bitvec = BitVec::zeros(10);
+    /// bitvec.set(3, true);
+    /// assert_eq!(bitvec.leading_zeros(), 6);
+    /// ```
+    pub fn leading_zeros(&self) -> usize {
+        let mut zero_item_count = 0;
+        let mut iter = self.storage.iter().rev().skip_while(|x| {
+            match **x == BitContainer::ZERO {
+                true => { zero_item_count += BIT_WIDTH as u32 / u64::BITS; true },
+                false => false,
+            }
+        });
+
+        if let Some(x) = iter.next() {
+            let arr = x.to_array();
+            let mut x_iter = arr.iter().rev().skip_while(|y| {
+                match **y == 0 {
+                    true => { zero_item_count += 1; true },
+                    false => false,
+                }
+            });
+
+            // Safe unwrap here, since there should be at least one non-zero item in arr.
+            let y = *(x_iter.next().unwrap());
+            let raw_leading_zeros = zero_item_count * u64::BITS + y.leading_zeros();
+            let mut extra_leading_zeros = self.nbits % BIT_WIDTH;
+            if extra_leading_zeros > 0 { extra_leading_zeros = BIT_WIDTH - extra_leading_zeros }
+            return raw_leading_zeros as usize - extra_leading_zeros;
+        }
+
+        self.nbits
     }
 
     /// return true if contains at least 1 element
@@ -697,6 +747,28 @@ fn test_bit_vec_count_ones() {
 }
 
 #[test]
+fn test_bit_vec_leading_zeros() {
+    let mut bitvec = BitVec::zeros(1000);
+    assert_eq!(bitvec.leading_zeros(), 1000);
+    bitvec.set(499, true);
+    assert_eq!(bitvec.leading_zeros(), 500);
+    bitvec.set(599, true);
+    assert_eq!(bitvec.leading_zeros(), 400);
+    bitvec.set(699, true);
+    assert_eq!(bitvec.leading_zeros(), 300);
+    bitvec.set(799, true);
+    assert_eq!(bitvec.leading_zeros(), 200);
+    bitvec.set(899, true);
+    assert_eq!(bitvec.leading_zeros(), 100);
+    bitvec.set(999, true);
+    assert_eq!(bitvec.leading_zeros(), 0);
+
+    bitvec = BitVec::zeros(10);
+    bitvec.set(3, true);
+    assert_eq!(bitvec.leading_zeros(), 6);
+}
+
+#[test]
 fn test_bit_vec_all_any() {
     let mut bitvec = BitVec::ones(1000);
     assert!(bitvec.all());
@@ -828,7 +900,6 @@ fn test_bitvec_creation() {
     assert_eq!(bitvec.get(63), Some(false));
     assert_eq!(bitvec.get(64), None);
 }
-
 
 #[test]
 fn test_bitvec_set_all() {

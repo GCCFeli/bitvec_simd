@@ -58,28 +58,201 @@
 //! run `cargo bench` to see the benchmarks on your device.
 
 use std::{
-    fmt::Display,
-    ops::{BitAnd, BitOr, BitXor, Index, Not},
+    fmt::{Display, Binary},
+    ops::{BitAnd, BitOr, BitXor, Index, Not, Shl, Shr, BitAndAssign, BitOrAssign, Add, Sub}, marker::PhantomData,
 };
 
 use wide::*;
 
-const BIT_WIDTH: usize = 256;
+pub trait BitContainerElement {
+    const BIT_WIDTH: usize;
+    const ZERO: Self;
+    const ONE: Self;
+    const MAX: Self;
+
+    fn count_ones(self) -> u32;
+    fn leading_zeros(self) -> u32;
+}
+
+impl BitContainerElement for u8 {
+    const BIT_WIDTH: usize = Self::BITS as usize;
+    const ZERO: Self = 0u8;
+    const ONE: Self = 1u8;
+    const MAX: Self = 0xFFu8;
+
+    fn count_ones(self) -> u32 {
+        Self::count_ones(self)
+    }
+
+    fn leading_zeros(self) -> u32 {
+        Self::leading_zeros(self)
+    }
+}
+
+impl BitContainerElement for u16 {
+    const BIT_WIDTH: usize = Self::BITS as usize;
+    const ZERO: Self = 0u16;
+    const ONE: Self = 1u16;
+    const MAX: Self = 0xFFFFu16;
+
+    fn count_ones(self) -> u32 {
+        Self::count_ones(self)
+    }
+
+    fn leading_zeros(self) -> u32 {
+        Self::leading_zeros(self)
+    }
+}
+
+impl BitContainerElement for u32 {
+    const BIT_WIDTH: usize = Self::BITS as usize;
+    const ZERO: Self = 0u32;
+    const ONE: Self = 1u32;
+    const MAX: Self = 0xFFFFFFFFu32;
+
+    fn count_ones(self) -> u32 {
+        Self::count_ones(self)
+    }
+
+    fn leading_zeros(self) -> u32 {
+        Self::leading_zeros(self)
+    }
+}
+
+impl BitContainerElement for u64 {
+    const BIT_WIDTH: usize = Self::BITS as usize;
+    const ZERO: Self = 0u64;
+    const ONE: Self = 1u64;
+    const MAX: Self = 0xFFFFFFFFFFFFFFFFu64;
+
+    fn count_ones(self) -> u32 {
+        Self::count_ones(self)
+    }
+
+    fn leading_zeros(self) -> u32 {
+        Self::leading_zeros(self)
+    }
+}
+
+pub trait BitContainer<T: BitContainerElement, const L: usize> {
+    const BIT_WIDTH: usize;
+    const ELEMENT_BIT_WIDTH: usize;
+    const LANES: usize;
+    const ZERO_ELEMENT: T;
+    const ONE_ELEMENT: T;
+    const MAX_ELEMENT: T;
+    const ZERO: Self;
+    const MAX: Self;
+    fn to_array(self) -> [T; L];
+}
+
+impl BitContainer<u8, 16> for u8x16 {
+    const BIT_WIDTH: usize = u8x16::BITS as usize;
+    const ELEMENT_BIT_WIDTH: usize = 8;
+    const LANES: usize = 16;
+    const ZERO_ELEMENT: u8 = 0u8;
+    const ONE_ELEMENT: u8 = 1u8;
+    const MAX_ELEMENT: u8 = u8::MAX;
+    const ZERO: Self = u8x16::ZERO;
+    const MAX: Self = u8x16::MAX;
+    
+    fn to_array(self) -> [u8; 16] {
+        u8x16::to_array(self)
+    }
+}
+
+impl BitContainer<u16, 8> for u16x8 {
+    const BIT_WIDTH: usize = u16x8::BITS as usize;
+    const ELEMENT_BIT_WIDTH: usize = 16;
+    const LANES: usize = 8;
+    const ZERO_ELEMENT: u16 = 0u16;
+    const ONE_ELEMENT: u16 = 1u16;
+    const MAX_ELEMENT: u16 = u16::MAX;
+    const ZERO: Self = u16x8::ZERO;
+    const MAX: Self = u16x8::MAX;
+    
+    fn to_array(self) -> [u16; 8] {
+        u16x8::to_array(self)
+    }
+}
+
+impl BitContainer<u32, 4> for u32x4 {
+    const BIT_WIDTH: usize = u32x4::BITS as usize;
+    const ELEMENT_BIT_WIDTH: usize = 32;
+    const LANES: usize = 4;
+    const ZERO_ELEMENT: u32 = 0u32;
+    const ONE_ELEMENT: u32 = 1u32;
+    const MAX_ELEMENT: u32 = u32::MAX;
+    const ZERO: Self = u32x4::ZERO;
+    const MAX: Self = u32x4::MAX;
+    
+    fn to_array(self) -> [u32; 4] {
+        u32x4::to_array(self)
+    }
+}
+
+impl BitContainer<u32, 8> for u32x8 {
+    const BIT_WIDTH: usize = u32x8::BITS as usize;
+    const ELEMENT_BIT_WIDTH: usize = 32;
+    const LANES: usize = 8;
+    const ZERO_ELEMENT: u32 = 0u32;
+    const ONE_ELEMENT: u32 = 1u32;
+    const MAX_ELEMENT: u32 = u32::MAX;
+    const ZERO: Self = u32x8::ZERO;
+    const MAX: Self = u32x8::MAX;
+    
+    fn to_array(self) -> [u32; 8] {
+        u32x8::to_array(self)
+    }
+}
+
+impl BitContainer<u64, 2> for u64x2 {
+    const BIT_WIDTH: usize = u64x2::BITS as usize;
+    const ELEMENT_BIT_WIDTH: usize = 64;
+    const LANES: usize = 2;
+    const ZERO_ELEMENT: u64 = 0u64;
+    const ONE_ELEMENT: u64 = 1u64;
+    const MAX_ELEMENT: u64 = u64::MAX;
+    const ZERO: Self = u64x2::ZERO;
+    const MAX: Self = u64x2::MAX;
+    
+    fn to_array(self) -> [u64; 2] {
+        u64x2::to_array(self)
+    }
+}
+
+impl BitContainer<u64, 4> for u64x4 {
+    const BIT_WIDTH: usize = u64x4::BITS as usize;
+    const ELEMENT_BIT_WIDTH: usize = 64;
+    const LANES: usize = 4;
+    const ZERO_ELEMENT: u64 = 0u64;
+    const ONE_ELEMENT: u64 = 1u64;
+    const MAX_ELEMENT: u64 = u64::MAX;
+    const ZERO: Self = u64x4::ZERO;
+    const MAX: Self = u64x4::MAX;
+    
+    fn to_array(self) -> [u64; 4] {
+        u64x4::to_array(self)
+    }
+}
 
 // BitContainer is the basic building block for internal storage
 // BitVec is expected to be aligned properly
-type BitContainer = u64x4;
+//type BitContainer = u64x4;
 
 /// Representation of a BitVec
 ///
 /// see the module's document for examples and details.
 ///
 #[derive(Debug, Clone)]
-pub struct BitVec {
+pub struct BitVecSimd<T: BitContainer<E, L>, E: BitContainerElement, const L: usize> {
     // internal representation of bitvec
-    storage: Vec<BitContainer>,
+    storage: Vec<T>,
     // actual number of bits exists in storage
     nbits: usize,
+
+    // phantom holding type E
+    phantom: PhantomData<E>,
 }
 
 /// Proc macro can not export BitVec
@@ -88,65 +261,79 @@ pub struct BitVec {
 macro_rules! impl_operation {
     ($name:ident, $name_2:ident, $op:tt) => {
         pub fn $name(self, other: Self) -> Self {
-        assert_eq!(self.nbits, other.nbits);
-        let storage = self
-            .storage
-            .into_iter()
-            .zip(other.storage.into_iter())
-            .map(|(a, b)| a $op b)
-            .collect();
-        Self {
-            storage,
-            nbits: self.nbits,
-        }
+            assert_eq!(self.nbits, other.nbits);
+            let storage = self
+                .storage
+                .into_iter()
+                .zip(other.storage.into_iter())
+                .map(|(a, b)| a $op b)
+                .collect();
+            Self {
+                storage,
+                nbits: self.nbits,
+                phantom: PhantomData,
+            }
         }
         pub fn $name_2(&self, other: &Self) -> Self {
-        assert_eq!(self.nbits, other.nbits);
-        let storage = self
-            .storage
-            .iter()
-            .cloned()
-            .zip(other.storage.iter().cloned())
-            .map(|(a, b)| a $op b)
-            .collect();
-        Self {
-            storage,
-            nbits: self.nbits,
-        }
+            assert_eq!(self.nbits, other.nbits);
+            let storage = self
+                .storage
+                .iter()
+                .cloned()
+                .zip(other.storage.iter().cloned())
+                .map(|(a, b)| a $op b)
+                .collect();
+            Self {
+                storage,
+                nbits: self.nbits,
+                phantom: PhantomData,
+            }
         }
     };
 }
 
-// convert total bit to length
-// input: Number of bits
-// output:
-//
-// 1. the number of Vector used
-// 2. after filling 1, the remaining bytes should be filled
-// 3. after filling 2, the remaining bits should be filled
-//
-// notice that this result represents the length of vector
-// so if 3. is 0, it means no extra bits after filling bytes
-// return (length of storage, u64 of last container, bit of last elem)
-// any bits > length of last elem should be set to 0
-#[inline]
-fn bit_to_len(nbits: usize) -> (usize, usize, usize) {
-    (
-        nbits / (BIT_WIDTH as usize),
-        (nbits % (BIT_WIDTH as usize)) / 64,
-        nbits % 64,
-    )
-}
-
-#[inline]
-fn set_bit(flag: bool, bytes: u64, offset: u32) -> u64 {
-    match flag {
-        true => bytes | (1u64 << offset),
-        false => bytes & !(1u64 << offset),
+impl<T, E, const L: usize> BitVecSimd<T, E, L>
+where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
+        + Add<Output = T> + Sub<Output = T>
+        + Eq
+        + Sized + Copy + Clone
+        + From<E> + From<[E; L]> + BitContainer<E, L>,
+      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
+        + BitAndAssign + BitOrAssign
+        + Add<Output = E> + Sub<Output = E>
+        + PartialEq
+        + Sized + Copy + Clone + Binary
+        + BitContainerElement
+{
+    // convert total bit to length
+    // input: Number of bits
+    // output:
+    //
+    // 1. the number of Vector used
+    // 2. after filling 1, the remaining bytes should be filled
+    // 3. after filling 2, the remaining bits should be filled
+    //
+    // notice that this result represents the length of vector
+    // so if 3. is 0, it means no extra bits after filling bytes
+    // return (length of storage, u64 of last container, bit of last elem)
+    // any bits > length of last elem should be set to 0
+    #[inline]
+    fn bit_to_len(nbits: usize) -> (usize, usize, usize) {
+        (
+            nbits / (T::BIT_WIDTH as usize),
+            (nbits % (T::BIT_WIDTH as usize)) / T::ELEMENT_BIT_WIDTH,
+            nbits % T::ELEMENT_BIT_WIDTH,
+        )
     }
-}
 
-impl BitVec {
+    #[inline]
+    fn set_bit(flag: bool, bytes: E, offset: u32) -> E {
+        match flag {
+            true => bytes | (T::ONE_ELEMENT << offset),
+            false => bytes & !(T::ONE_ELEMENT << offset),
+        }
+    }
+
     /// Create an empty bitvec with `nbits` initial elements.
     /// Example:
     ///
@@ -157,9 +344,9 @@ impl BitVec {
     /// assert_eq!(bitvec.len(), 10);
     /// ```
     pub fn zeros(nbits: usize) -> Self {
-        let len = (nbits + BIT_WIDTH - 1) / BIT_WIDTH;
-        let storage = (0..len).map(|_| BitContainer::splat(0)).collect();
-        Self { storage, nbits }
+        let len = (nbits + T::BIT_WIDTH - 1) / T::BIT_WIDTH;
+        let storage = (0..len).map(|_| T::ZERO).collect();
+        Self { storage, nbits, phantom: PhantomData }
     }
 
     /// Create a bitvec containing all 0 .. nbits elements.
@@ -172,20 +359,19 @@ impl BitVec {
     /// assert_eq!(bitvec.len(), 10);
     /// ```
     pub fn ones(nbits: usize) -> Self {
-        let (len, bytes, bits) = bit_to_len(nbits);
+        let (len, bytes, bits) = Self::bit_to_len(nbits);
         let mut storage = (0..len)
-            .map(|_| BitContainer::splat(u64::MAX))
+            .map(|_| T::MAX)
             .collect::<Vec<_>>();
         if bytes > 0 || bits > 0 {
-            let slice = (0..bytes as u64)
-                .map(|_| u64::MAX)
-                .chain([(u64::MAX << (u64::BITS - bits as u32) >> (u64::BITS - bits as u32))])
-                .chain((0..(BIT_WIDTH as u32 / u64::BITS) - bytes as u32 - 1).map(|_| 0))
-                .collect::<Vec<_>>();
-            assert_eq!(slice.len(), 4);
-            storage.push(BitContainer::from(&slice[0..4]));
+            let mut arr = [T::MAX_ELEMENT; L];
+            arr[bytes] = T::MAX_ELEMENT << (T::ELEMENT_BIT_WIDTH - bits) as u32 >> (T::ELEMENT_BIT_WIDTH - bits) as u32;
+            for i in (bytes + 1)..L {
+                arr[i] = T::ZERO_ELEMENT;
+            }
+            storage.push(T::from(arr));
         }
-        Self { storage, nbits }
+        Self { storage, nbits, phantom: PhantomData }
     }
 
     /// Create a bitvec from an Iterator of bool.
@@ -209,22 +395,22 @@ impl BitVec {
     pub fn from_bool_iterator<I: Iterator<Item = bool>>(i: I) -> Self {
         // FIXME: any better implementation?
         let mut storage = Vec::new();
-        let mut current_slice = [0u64; 4];
+        let mut current_slice = [T::ZERO_ELEMENT; L];
         let mut nbits = 0;
         for b in i {
             if b {
-                current_slice[nbits % BIT_WIDTH / 64] |= 1 << (nbits % 64);
+                current_slice[nbits % T::BIT_WIDTH / T::ELEMENT_BIT_WIDTH] |= T::ONE_ELEMENT << (nbits % T::ELEMENT_BIT_WIDTH) as u32;
             }
             nbits += 1;
-            if nbits % BIT_WIDTH == 0 {
-                storage.push(BitContainer::from(current_slice));
-                current_slice = [0u64; 4];
+            if nbits % T::BIT_WIDTH == 0 {
+                storage.push(T::from(current_slice));
+                current_slice = [T::ZERO_ELEMENT; L];
             }
         }
-        if nbits % BIT_WIDTH > 0 {
-            storage.push(BitContainer::from(current_slice));
+        if nbits % T::BIT_WIDTH > 0 {
+            storage.push(T::from(current_slice));
         }
-        Self { storage, nbits }
+        Self { storage, nbits, phantom: PhantomData }
     }
 
     /// Initialize from a set of integers.
@@ -238,14 +424,14 @@ impl BitVec {
     /// assert_eq!(<BitVec as Into<Vec<bool>>>::into(bitvec), vec![true, false, false, false, false, true, false, false, false, true]);
     /// ```
     pub fn from_slice(slice: &[usize]) -> Self {
-        let mut bv = BitVec::zeros(slice.len());
+        let mut bv = BitVecSimd::zeros(slice.len());
         for i in slice {
             bv.set(*i, true);
         }
         bv
     }
 
-    /// Initialize from a raw u64 slice.
+    /// Initialize from a raw E slice.
     ///
     /// Example:
     ///
@@ -256,29 +442,27 @@ impl BitVec {
     /// assert_eq!(bitvec.get(0), Some(true));
     /// assert_eq!(bitvec.get(1), Some(true));
     /// ```
-    pub fn from_slice_raw(slice: &[u64]) -> Self {
+    pub fn from_slice_raw(slice: &[E]) -> Self {
         let iter = &mut slice.iter();
-        let mut storage = Vec::with_capacity((slice.len() + 3) / 4);
+        let mut storage = Vec::with_capacity((slice.len() + T::LANES - 1) / T::LANES);
+
+        let a: u64 = 0;
+        a.count_ones();
 
         while let Some(a0) = iter.next() {
-            let a1 = match iter.next() {
-                Some(value) => value,
-                _ => &0u64,
-            };
-            let a2 = match iter.next() {
-                Some(value) => value,
-                _ => &0u64,
-            };
-            let a3 = match iter.next() {
-                Some(value) => value,
-                _ => &0u64,
-            };
-            storage.push(BitContainer::from([*a0, *a1, *a2, *a3]));
+            let mut arr = [T::ZERO_ELEMENT; L];
+            arr[0] = *a0;
+            for i in 1..T::LANES {
+                arr[i] = *(iter.next().unwrap_or(&T::ZERO_ELEMENT));
+            }
+
+            storage.push(T::from(arr));
         }
 
         Self {
             storage,
-            nbits: slice.len() * u64::BITS as usize,
+            nbits: slice.len() * T::ELEMENT_BIT_WIDTH as usize,
+            phantom: PhantomData,
         }
     }
 
@@ -313,21 +497,21 @@ impl BitVec {
     /// assert_eq!(bitvec.len(), 2);
     /// ```
     pub fn resize(&mut self, nbits: usize) {
-        let (mut i, bytes, bits) = bit_to_len(nbits);
+        let (mut i, bytes, bits) = Self::bit_to_len(nbits);
         if bytes > 0 || bits > 0 {
             i += 1;
         }
-        self.storage.resize(i, BitContainer::ZERO);
+        self.storage.resize(i, T::ZERO);
         if nbits < self.nbits {
             if bytes > 0 || bits > 0 {
                 // Safe unwrap here
                 let last_item = self.storage.last_mut().unwrap();
                 let mut arr = last_item.to_array();
-                for byte_index in (bytes + 1) .. (BIT_WIDTH / u64::BITS as usize) {
-                    arr[byte_index] = 0;
+                for byte_index in (bytes + 1) .. T::LANES {
+                    arr[byte_index] = T::ZERO_ELEMENT;
                 }
-                arr[bytes] = arr[bytes] << (u64::BITS - bits as u32) >> (u64::BITS - bits as u32);
-                *last_item = BitContainer::from(arr);
+                arr[bytes] = arr[bytes] << (T::ELEMENT_BIT_WIDTH - bits) as u32 >> (T::ELEMENT_BIT_WIDTH - bits) as u32;
+                *last_item = T::from(arr);
             }
         }
         self.nbits = nbits;
@@ -368,41 +552,39 @@ impl BitVec {
     /// assert_eq!(bitvec.get(14), Some(false));
     /// ```
     pub fn set(&mut self, index: usize, flag: bool) {
-        let (i, bytes, bits) = bit_to_len(index);
+        let (i, bytes, bits) = Self::bit_to_len(index);
         if self.nbits <= index {
             let i = if bytes > 0 || bits > 0 { i + 1 } else { i };
             self.storage
-                .extend((0..i - self.storage.len()).map(move |_| BitContainer::ZERO));
+                .extend((0..i - self.storage.len()).map(move |_| T::ZERO));
             self.nbits = index + 1;
         }
         let mut arr = self.storage[i].to_array();
-        arr[bytes] = set_bit(flag, arr[bytes], bits as u32);
-        self.storage[i] = BitContainer::from(arr);
+        arr[bytes] = Self::set_bit(flag, arr[bytes], bits as u32);
+        self.storage[i] = T::from(arr);
     }
 
     /// Set all items in bitvec to false
     pub fn set_all_false(&mut self) {
         self.storage
             .iter_mut()
-            .for_each(move |x| *x = BitContainer::ZERO);
+            .for_each(move |x| *x = T::ZERO);
     }
 
     /// Set all items in bitvec to true
     pub fn set_all_true(&mut self) {
-        let (_, bytes, bits) = bit_to_len(self.nbits);
+        let (_, bytes, bits) = Self::bit_to_len(self.nbits);
         self.storage
             .iter_mut()
-            .for_each(move |x| *x = BitContainer::splat(u64::MAX));
+            .for_each(move |x| *x = T::MAX);
         if bytes > 0 || bits > 0 {
-            let slice = (0..bytes as u64)
-                .map(|_| u64::MAX)
-                .chain([(u64::MAX << (u64::BITS - bits as u32) >> (u64::BITS - bits as u32))])
-                .chain((0..(BIT_WIDTH as u32 / u64::BITS) - bytes as u32 - 1).map(|_| 0))
-                .collect::<Vec<_>>();
-            assert_eq!(slice.len(), 4);
-
+            let mut arr = [T::MAX_ELEMENT; L];
+            arr[bytes] = T::MAX_ELEMENT << (T::ELEMENT_BIT_WIDTH - bits) as u32 >> (T::ELEMENT_BIT_WIDTH - bits) as u32;
+            for i in (bytes + 1)..L {
+                arr[i] = T::ZERO_ELEMENT;
+            }
             // unwrap here is safe since bytes > 0 || bits > 0 => self.nbits > 0
-            *(self.storage.last_mut().unwrap()) = BitContainer::from(&slice[0..4]);
+            *(self.storage.last_mut().unwrap()) = T::from(arr);
         }
     }
 
@@ -435,8 +617,8 @@ impl BitVec {
         if self.nbits <= index {
             None
         } else {
-            let (index, bytes, bits) = bit_to_len(index);
-            Some((self.storage[index].to_array()[bytes] & (1u64 << bits)) > 0)
+            let (index, bytes, bits) = Self::bit_to_len(index);
+            Some((self.storage[index].to_array()[bytes] & (T::ONE_ELEMENT << bits as u32)) != T::ZERO_ELEMENT)
         }
     }
 
@@ -461,8 +643,8 @@ impl BitVec {
         if self.nbits <= index {
             panic!("index out of bounds {} > {}", index, self.nbits);
         } else {
-            let (index, bytes, bits) = bit_to_len(index);
-            (self.storage[index].to_array()[bytes] & (1u64 << bits)) > 0
+            let (index, bytes, bits) = Self::bit_to_len(index);
+            (self.storage[index].to_array()[bytes] & (T::ONE_ELEMENT << bits as u32)) != T::ZERO_ELEMENT
         }
     }
 
@@ -511,15 +693,15 @@ impl BitVec {
     /// If your bitvec have len `1_000` and contains `[1,5]`,
     /// after inverse it will contains `0, 2..=4, 6..=999`
     pub fn inverse(self) -> Self {
-        let (i, bytes, bits) = bit_to_len(self.nbits);
+        let (i, bytes, bits) = Self::bit_to_len(self.nbits);
         let mut storage = self.storage.into_iter().map(|x| !x).collect::<Vec<_>>();
         if bytes > 0 || bits > 0 {
             assert_eq!(storage.len(), i + 1);
             if let Some(s) = storage.get_mut(i) {
                 let mut arr = s.to_array();
-                arr[bytes] = arr[bytes] << (u64::BITS - bits as u32) >> (u64::BITS - bits as u32);
-                for index in (bytes + 1)..4 {
-                    arr[index] = 0;
+                arr[bytes] = arr[bytes] << (T::ELEMENT_BIT_WIDTH - bits) as u32 >> (T::ELEMENT_BIT_WIDTH - bits) as u32;
+                for index in (bytes + 1)..T::LANES {
+                    arr[index] = T::ZERO_ELEMENT;
                 }
                 *s = arr.into();
             } else {
@@ -530,6 +712,7 @@ impl BitVec {
         Self {
             storage,
             nbits: self.nbits,
+            phantom: PhantomData,
         }
     }
 
@@ -569,7 +752,7 @@ impl BitVec {
     /// ```
     pub fn count_ones_before(&self, index: usize) -> usize {
         assert!(index <= self.nbits);
-        let (i, bytes, bits) = bit_to_len(index - 1);
+        let (i, bytes, bits) = Self::bit_to_len(index - 1);
         let mut ones = self
             .storage
             .iter()
@@ -582,7 +765,7 @@ impl BitVec {
             ones += arr.iter().take(bytes).map(|x| x.count_ones()).sum::<u32>();
             if bits > 0 {
                 let x = arr.iter().skip(bytes).next().unwrap();
-                ones += (x & ((1u64 << (bits + 1)) - 1)).count_ones();
+                ones += (*x & ((T::ONE_ELEMENT << (bits + 1) as u32) - T::ONE_ELEMENT)).count_ones();
             }
         }
         ones as usize
@@ -602,8 +785,8 @@ impl BitVec {
     pub fn leading_zeros(&self) -> usize {
         let mut zero_item_count = 0;
         let mut iter = self.storage.iter().rev().skip_while(|x| {
-            match **x == BitContainer::ZERO {
-                true => { zero_item_count += BIT_WIDTH as u32 / u64::BITS; true },
+            match **x == T::ZERO {
+                true => { zero_item_count += T::LANES; true },
                 false => false,
             }
         });
@@ -611,7 +794,7 @@ impl BitVec {
         if let Some(x) = iter.next() {
             let arr = x.to_array();
             let mut x_iter = arr.iter().rev().skip_while(|y| {
-                match **y == 0 {
+                match **y == T::ZERO_ELEMENT {
                     true => { zero_item_count += 1; true },
                     false => false,
                 }
@@ -619,9 +802,9 @@ impl BitVec {
 
             // Safe unwrap here, since there should be at least one non-zero item in arr.
             let y = *(x_iter.next().unwrap());
-            let raw_leading_zeros = zero_item_count * u64::BITS + y.leading_zeros();
-            let mut extra_leading_zeros = self.nbits % BIT_WIDTH;
-            if extra_leading_zeros > 0 { extra_leading_zeros = BIT_WIDTH - extra_leading_zeros }
+            let raw_leading_zeros = zero_item_count * T::ELEMENT_BIT_WIDTH + y.leading_zeros() as usize;
+            let mut extra_leading_zeros = self.nbits % T::BIT_WIDTH;
+            if extra_leading_zeros > 0 { extra_leading_zeros = T::BIT_WIDTH - extra_leading_zeros }
             return raw_leading_zeros as usize - extra_leading_zeros;
         }
 
@@ -682,29 +865,65 @@ impl BitVec {
     }
 }
 
-impl<I: Iterator<Item = bool>> From<I> for BitVec {
+impl<T, E, I: Iterator<Item = bool>, const L: usize> From<I> for BitVecSimd<T, E, L>
+where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
+        + Add<Output = T> + Sub<Output = T>
+        + Eq
+        + Sized + Copy + Clone
+        + From<E> + From<[E; L]> + BitContainer<E, L>,
+      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
+        + BitAndAssign + BitOrAssign
+        + Add<Output = E> + Sub<Output = E>
+        + PartialEq
+        + Sized + Copy + Clone + Binary
+        + BitContainerElement
+{
     fn from(i: I) -> Self {
         Self::from_bool_iterator(i)
     }
 }
 
-impl From<BitVec> for Vec<bool> {
-    fn from(v: BitVec) -> Self {
+impl<T, E, const L: usize> From<BitVecSimd<T, E, L>> for Vec<bool>
+where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
+        + Add<Output = T> + Sub<Output = T>
+        + Eq
+        + Sized + Copy + Clone
+        + From<E> + From<[E; L]> + BitContainer<E, L>,
+      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
+        + BitAndAssign + BitOrAssign
+        + Add<Output = E> + Sub<Output = E>
+        + PartialEq
+        + Sized + Copy + Clone + Binary
+        + BitContainerElement
+{
+    fn from(v: BitVecSimd<T, E, L>) -> Self {
         v.storage
             .into_iter()
-            .flat_map(|x| Into::<[u64; 4]>::into(x))
-            .flat_map(|x| (0..u64::BITS).map(move |i| (x >> i) & 1 > 0))
+            .flat_map(|x| x.to_array())
+            .flat_map(|x| (0..T::ELEMENT_BIT_WIDTH).map(move |i| (x >> i as u32) & T::ONE_ELEMENT != T::ZERO_ELEMENT))
             .take(v.nbits)
             .collect()
     }
 }
 
-impl From<BitVec> for Vec<usize> {
-    fn from(v: BitVec) -> Self {
+impl<T, E, const L: usize> From<BitVecSimd<T, E, L>> for Vec<usize>
+where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
+        + Add<Output = T> + Sub<Output = T>
+        + Eq
+        + Sized + Copy + Clone
+        + From<E> + From<[E; L]> + BitContainer<E, L>,
+      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
+        + BitAndAssign + BitOrAssign
+        + Add<Output = E> + Sub<Output = E>
+        + PartialEq
+        + Sized + Copy + Clone + Binary
+        + BitContainerElement
+{
+    fn from(v: BitVecSimd<T, E, L>) -> Self {
         v.storage
             .into_iter()
-            .flat_map(|x| Into::<[u64; 4]>::into(x))
-            .flat_map(|x| (0..u64::BITS).map(move |i| (x >> i) & 1 > 0))
+            .flat_map(|x| x.to_array())
+            .flat_map(|x| (0..T::ELEMENT_BIT_WIDTH).map(move |i| (x >> i as u32) & T::ONE_ELEMENT != T::ZERO_ELEMENT))
             .take(v.nbits)
             .enumerate()
             .filter(|(_, b)| *b)
@@ -713,7 +932,19 @@ impl From<BitVec> for Vec<usize> {
     }
 }
 
-impl Index<usize> for BitVec {
+impl<T, E, const L: usize> Index<usize> for BitVecSimd<T, E, L>
+where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
+        + Add<Output = T> + Sub<Output = T>
+        + Eq
+        + Sized + Copy + Clone
+        + From<E> + From<[E; L]> + BitContainer<E, L>,
+      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
+        + BitAndAssign + BitOrAssign
+        + Add<Output = E> + Sub<Output = E>
+        + PartialEq
+        + Sized + Copy + Clone + Binary
+        + BitContainerElement
+{
     type Output = bool;
     fn index(&self, index: usize) -> &Self::Output {
         if self.get_unchecked(index) {
@@ -724,12 +955,26 @@ impl Index<usize> for BitVec {
     }
 }
 
-impl Display for BitVec {
+impl<T, E, const L: usize> Display for BitVecSimd<T, E, L>
+where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
+        + Add<Output = T> + Sub<Output = T>
+        + Eq
+        + Sized + Copy + Clone
+        + From<E> + From<[E; L]> + BitContainer<E, L>,
+      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
+        + BitAndAssign + BitOrAssign
+        + Add<Output = E> + Sub<Output = E>
+        + PartialEq
+        + Sized + Copy + Clone + Binary
+        + BitContainerElement
+{
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let (i, bytes, bits) = bit_to_len(self.nbits);
+        let (i, bytes, bits) = Self::bit_to_len(self.nbits);
+
+        // FIXME: correct the write format
         for index in 0..i {
             let s = self.storage[index];
-            for u in 0..8 {
+            for u in 0..T::LANES {
                 write!(f, "{:064b} ", s.to_array()[u])?;
             }
         }
@@ -745,7 +990,19 @@ impl Display for BitVec {
     }
 }
 
-impl PartialEq for BitVec {
+impl<T, E, const L: usize> PartialEq for BitVecSimd<T, E, L>
+where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
+        + Add<Output = T> + Sub<Output = T>
+        + Eq
+        + Sized + Copy + Clone
+        + From<E> + From<[E; L]> + BitContainer<E, L>,
+      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
+        + BitAndAssign + BitOrAssign
+        + Add<Output = E> + Sub<Output = E>
+        + PartialEq
+        + Sized + Copy + Clone + Binary
+        + BitContainerElement
+{
     // eq should always ignore the bits > nbits
     fn eq(&self, other: &Self) -> bool {
         assert_eq!(self.nbits, other.nbits);
@@ -756,47 +1013,97 @@ impl PartialEq for BitVec {
     }
 }
 
-impl BitAnd for BitVec {
+impl<T, E, const L: usize> BitAnd for BitVecSimd<T, E, L>
+where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
+        + Add<Output = T> + Sub<Output = T>
+        + Eq
+        + Sized + Copy + Clone
+        + From<E> + From<[E; L]> + BitContainer<E, L>,
+      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
+        + BitAndAssign + BitOrAssign
+        + Add<Output = E> + Sub<Output = E>
+        + PartialEq
+        + Sized + Copy + Clone + Binary
+        + BitContainerElement
+{
     type Output = Self;
     fn bitand(self, rhs: Self) -> Self::Output {
         self.and(rhs)
     }
 }
 
-impl BitOr for BitVec {
+impl<T, E, const L: usize> BitOr for BitVecSimd<T, E, L>
+where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
+        + Add<Output = T> + Sub<Output = T>
+        + Eq
+        + Sized + Copy + Clone
+        + From<E> + From<[E; L]> + BitContainer<E, L>,
+      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
+        + BitAndAssign + BitOrAssign
+        + Add<Output = E> + Sub<Output = E>
+        + PartialEq
+        + Sized + Copy + Clone + Binary
+        + BitContainerElement
+{
     type Output = Self;
     fn bitor(self, rhs: Self) -> Self::Output {
         self.or(rhs)
     }
 }
 
-impl BitXor for BitVec {
+impl<T, E, const L: usize> BitXor for BitVecSimd<T, E, L>
+where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
+        + Add<Output = T> + Sub<Output = T>
+        + Eq
+        + Sized + Copy + Clone
+        + From<E> + From<[E; L]> + BitContainer<E, L>,
+      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
+        + BitAndAssign + BitOrAssign
+        + Add<Output = E> + Sub<Output = E>
+        + PartialEq
+        + Sized + Copy + Clone + Binary
+        + BitContainerElement
+{
     type Output = Self;
     fn bitxor(self, rhs: Self) -> Self::Output {
         self.xor(rhs)
     }
 }
 
-impl Not for BitVec {
+impl<T, E, const L: usize> Not for BitVecSimd<T, E, L>
+where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
+        + Add<Output = T> + Sub<Output = T>
+        + Eq
+        + Sized + Copy + Clone
+        + From<E> + From<[E; L]> + BitContainer<E, L>,
+      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
+        + BitAndAssign + BitOrAssign
+        + Add<Output = E> + Sub<Output = E>
+        + PartialEq
+        + Sized + Copy + Clone + Binary
+        + BitContainerElement
+{
     type Output = Self;
     fn not(self) -> Self::Output {
         self.inverse()
     }
 }
 
+pub type BitVec = BitVecSimd::<u64x4, u64, 4>;
+
 #[test]
 fn test_bit_to_len() {
     // contain nothing
-    assert_eq!(bit_to_len(0), (0, 0, 0));
-    assert_eq!(bit_to_len(1), (0, 0, 1));
+    assert_eq!(BitVecSimd::<u64x4, u64, 4>::bit_to_len(0), (0, 0, 0));
+    assert_eq!(BitVecSimd::<u64x4, u64, 4>::bit_to_len(1), (0, 0, 1));
     // 64bit only stores in a u64
-    assert_eq!(bit_to_len(64), (0, 1, 0));
+    assert_eq!(BitVecSimd::<u64x4, u64, 4>::bit_to_len(64), (0, 1, 0));
     // extra bit stores in extra u64
-    assert_eq!(bit_to_len(65), (0, 1, 1));
+    assert_eq!(BitVecSimd::<u64x4, u64, 4>::bit_to_len(65), (0, 1, 1));
     // BIT_WIDTH bit only stores in a vector
-    assert_eq!(bit_to_len(BIT_WIDTH), (1, 0, 0));
-    assert_eq!(bit_to_len(BIT_WIDTH + 1), (1, 0, 1));
-    assert_eq!(bit_to_len(BIT_WIDTH + 65), (1, 1, 1));
+    assert_eq!(BitVecSimd::<u64x4, u64, 4>::bit_to_len(u64x4::BIT_WIDTH), (1, 0, 0));
+    assert_eq!(BitVecSimd::<u64x4, u64, 4>::bit_to_len(u64x4::BIT_WIDTH + 1), (1, 0, 1));
+    assert_eq!(BitVecSimd::<u64x4, u64, 4>::bit_to_len(u64x4::BIT_WIDTH + 65), (1, 1, 1));
 }
 
 #[test]
@@ -826,7 +1133,7 @@ fn test_bit_vec_leading_zeros() {
     bitvec.set(999, true);
     assert_eq!(bitvec.leading_zeros(), 0);
 
-    bitvec = BitVec::zeros(10);
+    bitvec = BitVecSimd::zeros(10);
     bitvec.set(3, true);
     assert_eq!(bitvec.leading_zeros(), 6);
 }

@@ -20,6 +20,24 @@ fn benchmark_bitvector_simd2(c: &mut Criterion) {
     });
 }
 
+fn benchmark_bitvector_simd3(c: &mut Criterion) {
+    c.bench_function("bitvec_simd(this crate) resize false", |b| {
+        b.iter(|| {
+            let mut b1 = bitvec_simd::BitVec::ones(100_000);
+            black_box(b1.resize(200_000, false));
+        })
+    });
+}
+
+fn benchmark_bitvector_simd4(c: &mut Criterion) {
+    c.bench_function("bitvec_simd(this crate) resize true", |b| {
+        b.iter(|| {
+            let mut b1 = bitvec_simd::BitVec::ones(100_000);
+            black_box(b1.resize(200_000, true));
+        })
+    });
+}
+
 fn benchmark_bitvector_simd_u16x8(c: &mut Criterion) {
     let b1 = bitvec_simd::BitVecSimd::<wide::u16x8, u16, 8>::ones(100_000);
     let b2 = bitvec_simd::BitVecSimd::<wide::u16x8, u16, 8>::zeros(100_000);
@@ -36,6 +54,24 @@ fn benchmark_bitvector_simd2_u16x8(c: &mut Criterion) {
             let b1 = bitvec_simd::BitVecSimd::<wide::u16x8, u16, 8>::ones(100_000);
             let b2 = bitvec_simd::BitVecSimd::<wide::u16x8, u16, 8>::zeros(100_000);
             black_box(b1.and(b2));
+        })
+    });
+}
+
+fn benchmark_bitvector_simd3_u16x8(c: &mut Criterion) {
+    c.bench_function("bitvec_simd_u16x8(this crate) resize false", |b| {
+        b.iter(|| {
+            let mut b1 = bitvec_simd::BitVecSimd::<wide::u16x8, u16, 8>::ones(100_000);
+            black_box(b1.resize(200_000, false));
+        })
+    });
+}
+
+fn benchmark_bitvector_simd4_u16x8(c: &mut Criterion) {
+    c.bench_function("bitvec_simd_u16x8(this crate) resize true", |b| {
+        b.iter(|| {
+            let mut b1 = bitvec_simd::BitVecSimd::<wide::u16x8, u16, 8>::ones(100_000);
+            black_box(b1.resize(200_000, true));
         })
     });
 }
@@ -80,6 +116,24 @@ fn benchmark_bitvector_bitvec_n2(c: &mut Criterion) {
     });
 }
 
+fn benchmark_bitvector_bitvec_n3(c: &mut Criterion) {
+    c.bench_function("bitvec 0.22 resize false", |b| {
+        b.iter(|| {
+            let mut b1 = bitvec::bitvec![bitvec::order::Msb0, usize; 1; 100_000];
+            black_box(b1.resize(200_000, false));
+        })
+    });
+}
+
+fn benchmark_bitvector_bitvec_n4(c: &mut Criterion) {
+    c.bench_function("bitvec 0.22 resize true", |b| {
+        b.iter(|| {
+            let mut b1 = bitvec::bitvec![bitvec::order::Msb0, usize; 1; 100_000];
+            black_box(b1.resize(200_000, true));
+        })
+    });
+}
+
 criterion_group!(
     normal_benches,
     benchmark_bitvector_simd,
@@ -94,4 +148,21 @@ criterion_group!(
     benchmark_bitvector_bitvec2,
     benchmark_bitvector_bitvec_n2
 );
-criterion_main!(normal_benches, with_creation_benches);
+criterion_group!(
+    resize_false_benches,
+    benchmark_bitvector_simd3,
+    benchmark_bitvector_simd3_u16x8,
+    benchmark_bitvector_bitvec_n3
+);
+criterion_group!(
+    resize_true_benches,
+    benchmark_bitvector_simd4,
+    benchmark_bitvector_simd4_u16x8,
+    benchmark_bitvector_bitvec_n4
+);
+criterion_main!(
+    normal_benches,
+    with_creation_benches,
+    resize_false_benches,
+    resize_true_benches
+);

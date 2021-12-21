@@ -64,6 +64,7 @@ use std::{
 
 use wide::*;
 
+// BitContainerElement is the element of a SIMD type BitContainer
 pub trait BitContainerElement {
     const BIT_WIDTH: usize;
     const ZERO: Self;
@@ -72,68 +73,60 @@ pub trait BitContainerElement {
 
     fn count_ones(self) -> u32;
     fn leading_zeros(self) -> u32;
+    fn wrapping_shl(self, rhs: u32) -> Self;
+    fn wrapping_shr(self, rhs: u32) -> Self;
+    fn clear_high_bits(self, rhs: u32) -> Self;
+    fn clear_low_bits(self, rhs: u32) -> Self;
 }
 
-impl BitContainerElement for u8 {
-    const BIT_WIDTH: usize = Self::BITS as usize;
-    const ZERO: Self = 0u8;
-    const ONE: Self = 1u8;
-    const MAX: Self = 0xFFu8;
+macro_rules! impl_BitContainerElement {
+    ($type: ty, $zero: expr, $one: expr, $max: expr) => {
+        impl BitContainerElement for $type {
+            const BIT_WIDTH: usize = Self::BITS as usize;
+            const ZERO: Self = $zero;
+            const ONE: Self = $one;
+            const MAX: Self = $max;
+        
+            #[inline]
+            fn count_ones(self) -> u32 {
+                Self::count_ones(self)
+            }
+        
+            #[inline]
+            fn leading_zeros(self) -> u32 {
+                Self::leading_zeros(self)
+            }
 
-    fn count_ones(self) -> u32 {
-        Self::count_ones(self)
-    }
+            #[inline]
+            fn wrapping_shl(self, rhs: u32) -> Self {
+                self.wrapping_shl(rhs)
+            }
 
-    fn leading_zeros(self) -> u32 {
-        Self::leading_zeros(self)
-    }
+            #[inline]
+            fn wrapping_shr(self, rhs: u32) -> Self {
+                self.wrapping_shr(rhs)
+            }
+
+            #[inline]
+            fn clear_high_bits(self, rhs: u32) -> Self {
+                self.wrapping_shl(rhs).wrapping_shr(rhs)
+            }
+
+            #[inline]
+            fn clear_low_bits(self, rhs: u32) -> Self {
+                self.wrapping_shr(rhs).wrapping_shl(rhs)
+            }
+        }
+    };
 }
 
-impl BitContainerElement for u16 {
-    const BIT_WIDTH: usize = Self::BITS as usize;
-    const ZERO: Self = 0u16;
-    const ONE: Self = 1u16;
-    const MAX: Self = 0xFFFFu16;
+impl_BitContainerElement!(u8, 0u8, 1u8, 0xFFu8);
+impl_BitContainerElement!(u16, 0u16, 1u16, 0xFFFFu16);
+impl_BitContainerElement!(u32, 0u32, 1u32, 0xFFFFFFFFu32);
+impl_BitContainerElement!(u64, 0u64, 1u64, 0xFFFFFFFFFFFFFFFFu64);
 
-    fn count_ones(self) -> u32 {
-        Self::count_ones(self)
-    }
-
-    fn leading_zeros(self) -> u32 {
-        Self::leading_zeros(self)
-    }
-}
-
-impl BitContainerElement for u32 {
-    const BIT_WIDTH: usize = Self::BITS as usize;
-    const ZERO: Self = 0u32;
-    const ONE: Self = 1u32;
-    const MAX: Self = 0xFFFFFFFFu32;
-
-    fn count_ones(self) -> u32 {
-        Self::count_ones(self)
-    }
-
-    fn leading_zeros(self) -> u32 {
-        Self::leading_zeros(self)
-    }
-}
-
-impl BitContainerElement for u64 {
-    const BIT_WIDTH: usize = Self::BITS as usize;
-    const ZERO: Self = 0u64;
-    const ONE: Self = 1u64;
-    const MAX: Self = 0xFFFFFFFFFFFFFFFFu64;
-
-    fn count_ones(self) -> u32 {
-        Self::count_ones(self)
-    }
-
-    fn leading_zeros(self) -> u32 {
-        Self::leading_zeros(self)
-    }
-}
-
+// BitContainer is the basic building block for internal storage
+// BitVec is expected to be aligned properly
 pub trait BitContainer<T: BitContainerElement, const L: usize> {
     const BIT_WIDTH: usize;
     const ELEMENT_BIT_WIDTH: usize;
@@ -146,99 +139,31 @@ pub trait BitContainer<T: BitContainerElement, const L: usize> {
     fn to_array(self) -> [T; L];
 }
 
-impl BitContainer<u8, 16> for u8x16 {
-    const BIT_WIDTH: usize = u8x16::BITS as usize;
-    const ELEMENT_BIT_WIDTH: usize = 8;
-    const LANES: usize = 16;
-    const ZERO_ELEMENT: u8 = 0u8;
-    const ONE_ELEMENT: u8 = 1u8;
-    const MAX_ELEMENT: u8 = u8::MAX;
-    const ZERO: Self = u8x16::ZERO;
-    const MAX: Self = u8x16::MAX;
-    
-    fn to_array(self) -> [u8; 16] {
-        u8x16::to_array(self)
-    }
+macro_rules! impl_BitContainer {
+    ($type: ty, $elem_type: ty, $lanes: expr) => {
+        impl BitContainer<$elem_type, $lanes> for $type {
+            const BIT_WIDTH: usize = <$type>::BITS as usize;
+            const ELEMENT_BIT_WIDTH: usize = <$elem_type>::BIT_WIDTH;
+            const LANES: usize = $lanes;
+            const ZERO_ELEMENT: $elem_type = <$elem_type>::ZERO;
+            const ONE_ELEMENT: $elem_type = <$elem_type>::ONE;
+            const MAX_ELEMENT: $elem_type = <$elem_type>::MAX;
+            const ZERO: Self = <$type>::ZERO;
+            const MAX: Self = <$type>::MAX;
+            
+            fn to_array(self) -> [$elem_type; $lanes] {
+                <$type>::to_array(self)
+            }
+        }
+    };
 }
 
-impl BitContainer<u16, 8> for u16x8 {
-    const BIT_WIDTH: usize = u16x8::BITS as usize;
-    const ELEMENT_BIT_WIDTH: usize = 16;
-    const LANES: usize = 8;
-    const ZERO_ELEMENT: u16 = 0u16;
-    const ONE_ELEMENT: u16 = 1u16;
-    const MAX_ELEMENT: u16 = u16::MAX;
-    const ZERO: Self = u16x8::ZERO;
-    const MAX: Self = u16x8::MAX;
-    
-    fn to_array(self) -> [u16; 8] {
-        u16x8::to_array(self)
-    }
-}
-
-impl BitContainer<u32, 4> for u32x4 {
-    const BIT_WIDTH: usize = u32x4::BITS as usize;
-    const ELEMENT_BIT_WIDTH: usize = 32;
-    const LANES: usize = 4;
-    const ZERO_ELEMENT: u32 = 0u32;
-    const ONE_ELEMENT: u32 = 1u32;
-    const MAX_ELEMENT: u32 = u32::MAX;
-    const ZERO: Self = u32x4::ZERO;
-    const MAX: Self = u32x4::MAX;
-    
-    fn to_array(self) -> [u32; 4] {
-        u32x4::to_array(self)
-    }
-}
-
-impl BitContainer<u32, 8> for u32x8 {
-    const BIT_WIDTH: usize = u32x8::BITS as usize;
-    const ELEMENT_BIT_WIDTH: usize = 32;
-    const LANES: usize = 8;
-    const ZERO_ELEMENT: u32 = 0u32;
-    const ONE_ELEMENT: u32 = 1u32;
-    const MAX_ELEMENT: u32 = u32::MAX;
-    const ZERO: Self = u32x8::ZERO;
-    const MAX: Self = u32x8::MAX;
-    
-    fn to_array(self) -> [u32; 8] {
-        u32x8::to_array(self)
-    }
-}
-
-impl BitContainer<u64, 2> for u64x2 {
-    const BIT_WIDTH: usize = u64x2::BITS as usize;
-    const ELEMENT_BIT_WIDTH: usize = 64;
-    const LANES: usize = 2;
-    const ZERO_ELEMENT: u64 = 0u64;
-    const ONE_ELEMENT: u64 = 1u64;
-    const MAX_ELEMENT: u64 = u64::MAX;
-    const ZERO: Self = u64x2::ZERO;
-    const MAX: Self = u64x2::MAX;
-    
-    fn to_array(self) -> [u64; 2] {
-        u64x2::to_array(self)
-    }
-}
-
-impl BitContainer<u64, 4> for u64x4 {
-    const BIT_WIDTH: usize = u64x4::BITS as usize;
-    const ELEMENT_BIT_WIDTH: usize = 64;
-    const LANES: usize = 4;
-    const ZERO_ELEMENT: u64 = 0u64;
-    const ONE_ELEMENT: u64 = 1u64;
-    const MAX_ELEMENT: u64 = u64::MAX;
-    const ZERO: Self = u64x4::ZERO;
-    const MAX: Self = u64x4::MAX;
-    
-    fn to_array(self) -> [u64; 4] {
-        u64x4::to_array(self)
-    }
-}
-
-// BitContainer is the basic building block for internal storage
-// BitVec is expected to be aligned properly
-//type BitContainer = u64x4;
+impl_BitContainer!(u8x16, u8, 16);
+impl_BitContainer!(u16x8, u16, 8);
+impl_BitContainer!(u32x4, u32, 4);
+impl_BitContainer!(u32x8, u32, 8);
+impl_BitContainer!(u64x2, u64, 2);
+impl_BitContainer!(u64x4, u64, 4);
 
 /// Representation of a BitVec
 ///
@@ -329,8 +254,8 @@ where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Outpu
     #[inline]
     fn set_bit(flag: bool, bytes: E, offset: u32) -> E {
         match flag {
-            true => bytes | (T::ONE_ELEMENT << offset),
-            false => bytes & !(T::ONE_ELEMENT << offset),
+            true => bytes | T::ONE_ELEMENT.wrapping_shl(offset),
+            false => bytes & !T::ONE_ELEMENT.wrapping_shl(offset),
         }
     }
 
@@ -365,7 +290,7 @@ where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Outpu
             .collect::<Vec<_>>();
         if bytes > 0 || bits > 0 {
             let mut arr = [T::MAX_ELEMENT; L];
-            arr[bytes] = T::MAX_ELEMENT << (T::ELEMENT_BIT_WIDTH - bits) as u32 >> (T::ELEMENT_BIT_WIDTH - bits) as u32;
+            arr[bytes] = T::MAX_ELEMENT.clear_high_bits((T::ELEMENT_BIT_WIDTH - bits) as u32);
             for i in (bytes + 1)..L {
                 arr[i] = T::ZERO_ELEMENT;
             }
@@ -399,7 +324,7 @@ where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Outpu
         let mut nbits = 0;
         for b in i {
             if b {
-                current_slice[nbits % T::BIT_WIDTH / T::ELEMENT_BIT_WIDTH] |= T::ONE_ELEMENT << (nbits % T::ELEMENT_BIT_WIDTH) as u32;
+                current_slice[nbits % T::BIT_WIDTH / T::ELEMENT_BIT_WIDTH] |= T::ONE_ELEMENT.wrapping_shl((nbits % T::ELEMENT_BIT_WIDTH) as u32);
             }
             nbits += 1;
             if nbits % T::BIT_WIDTH == 0 {
@@ -482,8 +407,8 @@ where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Outpu
         self.nbits
     }
 
-    /// Resize this bitvec to new length in-place.
-    /// If new length is greater than current length, 0 will be filled.
+    /// Resize this bitvec to `nbits` in-place.
+    /// If new length is greater than current length, `value` will be filled.
     /// 
     /// Example:
     ///
@@ -496,22 +421,83 @@ where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Outpu
     /// bitvec.resize(2);
     /// assert_eq!(bitvec.len(), 2);
     /// ```
-    pub fn resize(&mut self, nbits: usize) {
-        let (mut i, bytes, bits) = Self::bit_to_len(nbits);
-        if bytes > 0 || bits > 0 {
-            i += 1;
-        }
-        self.storage.resize(i, T::ZERO);
+    pub fn resize(&mut self, nbits: usize, value: bool) {
+        let (i, bytes, bits) = Self::bit_to_len(nbits);
+        self.storage.resize(if bytes > 0 || bits > 0 { i + 1 } else { i }, if value { T::MAX } else { T::ZERO });
         if nbits < self.nbits {
             if bytes > 0 || bits > 0 {
-                // Safe unwrap here
-                let last_item = self.storage.last_mut().unwrap();
-                let mut arr = last_item.to_array();
-                for byte_index in (bytes + 1) .. T::LANES {
+                let mut arr = self.storage[i].to_array();
+                let mut end_bytes = bytes;
+                if bits > 0 {
+                    arr[end_bytes] = arr[end_bytes].clear_high_bits((T::ELEMENT_BIT_WIDTH - bits) as u32);
+                    end_bytes += 1;
+                }
+                for byte_index in end_bytes..T::LANES {
                     arr[byte_index] = T::ZERO_ELEMENT;
                 }
-                arr[bytes] = arr[bytes] << (T::ELEMENT_BIT_WIDTH - bits) as u32 >> (T::ELEMENT_BIT_WIDTH - bits) as u32;
-                *last_item = T::from(arr);
+                self.storage[i] = T::from(arr);
+            }
+        } else if value { // old_i <= i && filling 1
+            let (old_i, old_bytes, old_bits) = Self::bit_to_len(self.nbits);
+            if old_i < i {
+                if old_bytes > 0 || old_bits > 0 {
+                    let mut arr = self.storage[old_i].to_array();
+                    let mut old_end_bytes = old_bytes;
+                    if old_bits > 0 {
+                        arr[old_end_bytes] |= T::MAX_ELEMENT.clear_low_bits(old_bits as u32);
+                        old_end_bytes += 1;
+                    }
+                    for byte_index in old_end_bytes..T::LANES {
+                        arr[byte_index] = T::MAX_ELEMENT;
+                    }
+                    self.storage[old_i] = T::from(arr);
+                }
+                if bytes > 0 || bits > 0 {
+                    let mut arr = self.storage[i].to_array();
+                    if bits > 0 {
+                        let remaining_bits = (T::ELEMENT_BIT_WIDTH - bits) as u32;
+                        arr[bytes] = arr[bytes].clear_high_bits(remaining_bits);
+                    }
+                    let end_bytes = if bits > 0 { bytes + 1 } else { bytes };
+                    for byte_index in end_bytes..T::LANES {
+                        arr[byte_index] = T::ZERO_ELEMENT;
+                    }
+                    self.storage[i] = T::from(arr);
+                }
+            } else if bytes > 0 || bits > 0 {
+                debug_assert!(old_i == i && old_bytes <= bytes && (bytes > 0 || bits > 0));
+                let mut arr = self.storage[i].to_array();
+                if old_bytes < bytes {
+                    let mut old_end_bytes = old_bytes;
+                    // fill 1 in arr[0..bytes]
+                    if old_bits > 0 {
+                        arr[old_end_bytes] |= T::MAX_ELEMENT.clear_low_bits(old_bits as u32);
+                        old_end_bytes += 1;
+                    }
+                    for byte_index in old_end_bytes..bytes {
+                        arr[byte_index] = T::MAX_ELEMENT;
+                    }
+                    // fill 1 for remaining bits
+                    if bits > 0 {
+                        let remaining_bits = (T::ELEMENT_BIT_WIDTH - bits) as u32;
+                        arr[bytes] = T::MAX_ELEMENT.clear_high_bits(remaining_bits);
+                    }
+                } else {
+                    debug_assert!(old_bytes == bytes && bits >= old_bits);
+                    if bits > old_bits {
+                        // fix the only byte
+                        let remaining_bits = (T::ELEMENT_BIT_WIDTH - bits) as u32;
+                        let bin = T::MAX_ELEMENT.clear_low_bits(old_bits as u32);
+                        arr[bytes] |= bin;
+                        arr[bytes] = arr[bytes].clear_high_bits(remaining_bits);
+                    }
+                }
+                // clear remaining bytes
+                let end_bytes = if bits > 0 { bytes + 1 } else { bytes };
+                for byte_index in end_bytes..T::LANES {
+                    arr[byte_index] = T::ZERO_ELEMENT;
+                }
+                self.storage[i] = T::from(arr);
             }
         }
         self.nbits = nbits;
@@ -533,7 +519,7 @@ where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Outpu
         if nbits >= self.nbits {
             panic!("nbits {} should be less than current value {}", nbits, self.nbits);
         }
-        self.resize(nbits);
+        self.resize(nbits, false);
     }
 
     /// Remove or add `index` to the set.
@@ -579,7 +565,7 @@ where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Outpu
             .for_each(move |x| *x = T::MAX);
         if bytes > 0 || bits > 0 {
             let mut arr = [T::MAX_ELEMENT; L];
-            arr[bytes] = T::MAX_ELEMENT << (T::ELEMENT_BIT_WIDTH - bits) as u32 >> (T::ELEMENT_BIT_WIDTH - bits) as u32;
+            arr[bytes] = T::MAX_ELEMENT.clear_high_bits((T::ELEMENT_BIT_WIDTH - bits) as u32);
             for i in (bytes + 1)..L {
                 arr[i] = T::ZERO_ELEMENT;
             }
@@ -618,7 +604,7 @@ where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Outpu
             None
         } else {
             let (index, bytes, bits) = Self::bit_to_len(index);
-            Some((self.storage[index].to_array()[bytes] & (T::ONE_ELEMENT << bits as u32)) != T::ZERO_ELEMENT)
+            Some(self.storage[index].to_array()[bytes] & T::ONE_ELEMENT.wrapping_shl(bits as u32) != T::ZERO_ELEMENT)
         }
     }
 
@@ -644,7 +630,7 @@ where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Outpu
             panic!("index out of bounds {} > {}", index, self.nbits);
         } else {
             let (index, bytes, bits) = Self::bit_to_len(index);
-            (self.storage[index].to_array()[bytes] & (T::ONE_ELEMENT << bits as u32)) != T::ZERO_ELEMENT
+            (self.storage[index].to_array()[bytes] & T::ONE_ELEMENT.wrapping_shl(bits as u32)) != T::ZERO_ELEMENT
         }
     }
 
@@ -699,7 +685,7 @@ where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Outpu
             assert_eq!(storage.len(), i + 1);
             if let Some(s) = storage.get_mut(i) {
                 let mut arr = s.to_array();
-                arr[bytes] = arr[bytes] << (T::ELEMENT_BIT_WIDTH - bits) as u32 >> (T::ELEMENT_BIT_WIDTH - bits) as u32;
+                arr[bytes] = arr[bytes].clear_high_bits((T::ELEMENT_BIT_WIDTH - bits) as u32);
                 for index in (bytes + 1)..T::LANES {
                     arr[index] = T::ZERO_ELEMENT;
                 }
@@ -765,7 +751,7 @@ where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Outpu
             ones += arr.iter().take(bytes).map(|x| x.count_ones()).sum::<u32>();
             if bits > 0 {
                 let x = arr.iter().skip(bytes).next().unwrap();
-                ones += (*x & ((T::ONE_ELEMENT << (bits + 1) as u32) - T::ONE_ELEMENT)).count_ones();
+                ones += (*x & (T::ONE_ELEMENT.wrapping_shl((bits + 1) as u32) - T::ONE_ELEMENT)).count_ones();
             }
         }
         ones as usize
@@ -900,7 +886,7 @@ where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Outpu
         v.storage
             .into_iter()
             .flat_map(|x| x.to_array())
-            .flat_map(|x| (0..T::ELEMENT_BIT_WIDTH).map(move |i| (x >> i as u32) & T::ONE_ELEMENT != T::ZERO_ELEMENT))
+            .flat_map(|x| (0..T::ELEMENT_BIT_WIDTH).map(move |i| (x.wrapping_shr(i as u32)) & T::ONE_ELEMENT != T::ZERO_ELEMENT))
             .take(v.nbits)
             .collect()
     }
@@ -923,7 +909,7 @@ where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Outpu
         v.storage
             .into_iter()
             .flat_map(|x| x.to_array())
-            .flat_map(|x| (0..T::ELEMENT_BIT_WIDTH).map(move |i| (x >> i as u32) & T::ONE_ELEMENT != T::ZERO_ELEMENT))
+            .flat_map(|x| (0..T::ELEMENT_BIT_WIDTH).map(move |i| (x.wrapping_shr(i as u32)) & T::ONE_ELEMENT != T::ZERO_ELEMENT))
             .take(v.nbits)
             .enumerate()
             .filter(|(_, b)| *b)
@@ -1140,13 +1126,22 @@ fn test_bit_vec_leading_zeros() {
 
 #[test]
 fn test_bit_vec_resize() {
+    for i in (0..3333).filter(|x| x % 13 == 0) {
+        for j in (0 .. 6666).filter(|x| x % 37 == 0) {
+            let mut b = BitVec::ones(i);
+            b.resize(j, true);
+            assert_eq!(b.len(), j);
+            assert_eq!(b.count_ones(), j);
+        }
+    }
+
     let mut bitvec = BitVec::ones(3333);
     for i in 3333..6666 {
-        bitvec.resize(i);
+        bitvec.resize(i, false);
         assert_eq!(bitvec.len(), i);
     }
     for i in 3333..0 {
-        bitvec.resize(i);
+        bitvec.resize(i, false);
         assert_eq!(bitvec.len(), i);
         assert_eq!(bitvec.count_ones(), i);
     }

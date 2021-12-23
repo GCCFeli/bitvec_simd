@@ -407,6 +407,60 @@ where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Outpu
         self.nbits
     }
 
+    fn clear_arr_high_bits(arr: &mut [E], bytes: usize, bits: usize) {
+        let mut end_bytes = bytes;
+        if bits > 0 {
+            arr[end_bytes] = arr[end_bytes].clear_high_bits((T::ELEMENT_BIT_WIDTH - bits) as u32);
+            end_bytes += 1;
+        }
+        for byte_index in end_bytes..T::LANES {
+            arr[byte_index] = T::ZERO_ELEMENT;
+        }
+    }
+
+    fn fill_arr_high_bits(arr: &mut [E], bytes: usize, bits: usize, bytes_max: usize) {
+        let mut end_bytes = bytes;
+        if bits > 0 {
+            arr[end_bytes] |= T::MAX_ELEMENT.clear_low_bits(bits as u32);
+            end_bytes += 1;
+        }
+        for byte_index in end_bytes..bytes_max {
+            arr[byte_index] = T::MAX_ELEMENT;
+        }
+    }
+
+    fn clear_high_bits(&mut self, i: usize, bytes: usize, bits: usize) {
+        if bytes > 0 || bits > 0 {
+            let mut arr = self.storage[i].to_array();
+            Self::clear_arr_high_bits(&mut arr, bytes, bits);
+            self.storage[i] = T::from(arr);
+        }
+    }
+
+    fn fill_high_bits(&mut self, i: usize, bytes: usize, bits: usize, bytes_max: usize) {
+        if bytes > 0 || bits > 0 {
+            let mut arr = self.storage[i].to_array();
+            Self::fill_arr_high_bits(&mut arr, bytes, bits, bytes_max);
+            self.storage[i] = T::from(arr);
+        }
+    }
+
+    fn fix_high_bits(&mut self, old_i: usize, old_bytes: usize, old_bits: usize, i: usize, bytes: usize, bits: usize) {
+        debug_assert!(old_i == i && old_bytes <= bytes && (bytes > 0 || bits > 0));
+        let mut arr = self.storage[i].to_array();
+        if old_bytes < bytes {
+            Self::fill_arr_high_bits(&mut arr, old_bytes, old_bits, if bits > 0 { bytes + 1 } else { bytes });
+        } else {
+            debug_assert!(old_bytes == bytes && bits >= old_bits);
+            if bits > old_bits {
+                // fix the only byte
+                arr[bytes] |= T::MAX_ELEMENT.clear_low_bits(old_bits as u32);
+            }
+        }
+        Self::clear_arr_high_bits(&mut arr, bytes, bits);
+        self.storage[i] = T::from(arr);
+    }
+
     /// Resize this bitvec to `nbits` in-place.
     /// If new length is greater than current length, `value` will be filled.
     /// 
@@ -416,88 +470,23 @@ where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Outpu
     /// use bitvec_simd::BitVec;
     ///
     /// let mut bitvec = BitVec::ones(3);
-    /// bitvec.resize(5);
+    /// bitvec.resize(5, false);
     /// assert_eq!(bitvec.len(), 5);
-    /// bitvec.resize(2);
+    /// bitvec.resize(2, false);
     /// assert_eq!(bitvec.len(), 2);
     /// ```
     pub fn resize(&mut self, nbits: usize, value: bool) {
         let (i, bytes, bits) = Self::bit_to_len(nbits);
         self.storage.resize(if bytes > 0 || bits > 0 { i + 1 } else { i }, if value { T::MAX } else { T::ZERO });
         if nbits < self.nbits {
-            if bytes > 0 || bits > 0 {
-                let mut arr = self.storage[i].to_array();
-                let mut end_bytes = bytes;
-                if bits > 0 {
-                    arr[end_bytes] = arr[end_bytes].clear_high_bits((T::ELEMENT_BIT_WIDTH - bits) as u32);
-                    end_bytes += 1;
-                }
-                for byte_index in end_bytes..T::LANES {
-                    arr[byte_index] = T::ZERO_ELEMENT;
-                }
-                self.storage[i] = T::from(arr);
-            }
+            self.clear_high_bits(i, bytes, bits);
         } else if value { // old_i <= i && filling 1
             let (old_i, old_bytes, old_bits) = Self::bit_to_len(self.nbits);
             if old_i < i {
-                if old_bytes > 0 || old_bits > 0 {
-                    let mut arr = self.storage[old_i].to_array();
-                    let mut old_end_bytes = old_bytes;
-                    if old_bits > 0 {
-                        arr[old_end_bytes] |= T::MAX_ELEMENT.clear_low_bits(old_bits as u32);
-                        old_end_bytes += 1;
-                    }
-                    for byte_index in old_end_bytes..T::LANES {
-                        arr[byte_index] = T::MAX_ELEMENT;
-                    }
-                    self.storage[old_i] = T::from(arr);
-                }
-                if bytes > 0 || bits > 0 {
-                    let mut arr = self.storage[i].to_array();
-                    if bits > 0 {
-                        let remaining_bits = (T::ELEMENT_BIT_WIDTH - bits) as u32;
-                        arr[bytes] = arr[bytes].clear_high_bits(remaining_bits);
-                    }
-                    let end_bytes = if bits > 0 { bytes + 1 } else { bytes };
-                    for byte_index in end_bytes..T::LANES {
-                        arr[byte_index] = T::ZERO_ELEMENT;
-                    }
-                    self.storage[i] = T::from(arr);
-                }
+                self.fill_high_bits(old_i, old_bytes, old_bits, T::LANES);
+                self.clear_high_bits(i, bytes, bits);
             } else if bytes > 0 || bits > 0 {
-                debug_assert!(old_i == i && old_bytes <= bytes && (bytes > 0 || bits > 0));
-                let mut arr = self.storage[i].to_array();
-                if old_bytes < bytes {
-                    let mut old_end_bytes = old_bytes;
-                    // fill 1 in arr[0..bytes]
-                    if old_bits > 0 {
-                        arr[old_end_bytes] |= T::MAX_ELEMENT.clear_low_bits(old_bits as u32);
-                        old_end_bytes += 1;
-                    }
-                    for byte_index in old_end_bytes..bytes {
-                        arr[byte_index] = T::MAX_ELEMENT;
-                    }
-                    // fill 1 for remaining bits
-                    if bits > 0 {
-                        let remaining_bits = (T::ELEMENT_BIT_WIDTH - bits) as u32;
-                        arr[bytes] = T::MAX_ELEMENT.clear_high_bits(remaining_bits);
-                    }
-                } else {
-                    debug_assert!(old_bytes == bytes && bits >= old_bits);
-                    if bits > old_bits {
-                        // fix the only byte
-                        let remaining_bits = (T::ELEMENT_BIT_WIDTH - bits) as u32;
-                        let bin = T::MAX_ELEMENT.clear_low_bits(old_bits as u32);
-                        arr[bytes] |= bin;
-                        arr[bytes] = arr[bytes].clear_high_bits(remaining_bits);
-                    }
-                }
-                // clear remaining bytes
-                let end_bytes = if bits > 0 { bytes + 1 } else { bytes };
-                for byte_index in end_bytes..T::LANES {
-                    arr[byte_index] = T::ZERO_ELEMENT;
-                }
-                self.storage[i] = T::from(arr);
+                self.fix_high_bits(old_i, old_bytes, old_bits, i, bytes, bits);
             }
         }
         self.nbits = nbits;
@@ -678,9 +667,9 @@ where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Outpu
     ///
     /// If your bitvec have len `1_000` and contains `[1,5]`,
     /// after inverse it will contains `0, 2..=4, 6..=999`
-    pub fn inverse(self) -> Self {
+    pub fn inverse(&self) -> Self {
         let (i, bytes, bits) = Self::bit_to_len(self.nbits);
-        let mut storage = self.storage.into_iter().map(|x| !x).collect::<Vec<_>>();
+        let mut storage = self.storage.iter().map(|x| !(*x)).collect::<Vec<_>>();
         if bytes > 0 || bits > 0 {
             assert_eq!(storage.len(), i + 1);
             if let Some(s) = storage.get_mut(i) {
@@ -918,163 +907,274 @@ where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Outpu
     }
 }
 
-impl<T, E, const L: usize> Index<usize> for BitVecSimd<T, E, L>
-where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
-        + Add<Output = T> + Sub<Output = T>
-        + Eq
-        + Sized + Copy + Clone
-        + From<E> + From<[E; L]> + BitContainer<E, L>,
-      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
-        + BitAndAssign + BitOrAssign
-        + Add<Output = E> + Sub<Output = E>
-        + PartialEq
-        + Sized + Copy + Clone + Binary
-        + BitContainerElement
-{
-    type Output = bool;
-    fn index(&self, index: usize) -> &Self::Output {
-        if self.get_unchecked(index) {
-            &true
-        } else {
-            &false
-        }
-    }
+macro_rules! impl_trait {
+    (
+        //$name:ident $(< $( $name1:ident $(< $( $lt:tt ),+ >)? ),+ >)?,
+        ( $( $name:tt )+ ),
+        ( $( $name1:tt )+ ),
+        { $( $body:tt )* }
+    ) =>
+    {
+        //$name$(< $( $name1 $(< $( $lt ),+ >)? ),+ >)?
+        impl<T, E, const L: usize> $( $name )+ for $( $name1 )+
+        where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
+              + Add<Output = T> + Sub<Output = T>
+              + Eq
+              + Sized + Copy + Clone
+              + From<E> + From<[E; L]> + BitContainer<E, L>,
+             E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
+              + BitAndAssign + BitOrAssign
+              + Add<Output = E> + Sub<Output = E>
+              + PartialEq
+              + Sized + Copy + Clone + Binary
+              + BitContainerElement
+        { $( $body )* }
+    };
 }
 
-impl<T, E, const L: usize> Display for BitVecSimd<T, E, L>
-where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
-        + Add<Output = T> + Sub<Output = T>
-        + Eq
-        + Sized + Copy + Clone
-        + From<E> + From<[E; L]> + BitContainer<E, L>,
-      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
-        + BitAndAssign + BitOrAssign
-        + Add<Output = E> + Sub<Output = E>
-        + PartialEq
-        + Sized + Copy + Clone + Binary
-        + BitContainerElement
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let (i, bytes, bits) = Self::bit_to_len(self.nbits);
-
-        // FIXME: correct the write format
-        for index in 0..i {
-            let s = self.storage[index];
-            for u in 0..T::LANES {
-                write!(f, "{:064b} ", s.to_array()[u])?;
+impl_trait!{
+    (Index<usize>),
+    (BitVecSimd<T, E, L>),
+    {
+        type Output = bool;
+        fn index(&self, index: usize) -> &Self::Output {
+            if self.get_unchecked(index) {
+                &true
+            } else {
+                &false
             }
         }
-        if bytes > 0 || bits > 0 {
-            let s = self.storage[i];
-            for u in 0..bytes {
-                write!(f, "{:064b} ", s.to_array()[u])?;
+    }
+}
+
+impl_trait!{
+    (Display),
+    (BitVecSimd<T, E, L>),
+    {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            let (i, bytes, bits) = Self::bit_to_len(self.nbits);
+    
+            // FIXME: correct the write format
+            for index in 0..i {
+                let s = self.storage[index];
+                for u in 0..T::LANES {
+                    write!(f, "{:064b} ", s.to_array()[u])?;
+                }
             }
-            write!(f, "{:064b}", s.to_array()[bytes])
-        } else {
-            Ok(())
+            if bytes > 0 || bits > 0 {
+                let s = self.storage[i];
+                for u in 0..bytes {
+                    write!(f, "{:064b} ", s.to_array()[u])?;
+                }
+                write!(f, "{:064b}", s.to_array()[bytes])
+            } else {
+                Ok(())
+            }
         }
     }
 }
 
-impl<T, E, const L: usize> PartialEq for BitVecSimd<T, E, L>
-where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
-        + Add<Output = T> + Sub<Output = T>
-        + Eq
-        + Sized + Copy + Clone
-        + From<E> + From<[E; L]> + BitContainer<E, L>,
-      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
-        + BitAndAssign + BitOrAssign
-        + Add<Output = E> + Sub<Output = E>
-        + PartialEq
-        + Sized + Copy + Clone + Binary
-        + BitContainerElement
-{
-    // eq should always ignore the bits > nbits
-    fn eq(&self, other: &Self) -> bool {
-        assert_eq!(self.nbits, other.nbits);
-        self.storage
-            .iter()
-            .zip(other.storage.iter())
-            .all(|(a, b)| a == b)
+impl_trait!{
+    (PartialEq),
+    (BitVecSimd<T, E, L>),
+    {
+        // eq should always ignore the bits > nbits
+        fn eq(&self, other: &Self) -> bool {
+            assert_eq!(self.nbits, other.nbits);
+            self.storage
+                .iter()
+                .zip(other.storage.iter())
+                .all(|(a, b)| a == b)
+        }
     }
 }
 
-impl<T, E, const L: usize> BitAnd for BitVecSimd<T, E, L>
-where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
-        + Add<Output = T> + Sub<Output = T>
-        + Eq
-        + Sized + Copy + Clone
-        + From<E> + From<[E; L]> + BitContainer<E, L>,
-      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
-        + BitAndAssign + BitOrAssign
-        + Add<Output = E> + Sub<Output = E>
-        + PartialEq
-        + Sized + Copy + Clone + Binary
-        + BitContainerElement
-{
-    type Output = Self;
-    fn bitand(self, rhs: Self) -> Self::Output {
-        self.and(rhs)
+impl_trait!{
+    (PartialEq< &BitVecSimd<T, E, L> >),
+    (BitVecSimd<T, E, L>),
+    {
+        // eq should always ignore the bits > nbits
+        fn eq(&self, other: &&Self) -> bool {
+            assert_eq!(self.nbits, other.nbits);
+            self.storage
+                .iter()
+                .zip(other.storage.iter())
+                .all(|(a, b)| a == b)
+        }
     }
 }
 
-impl<T, E, const L: usize> BitOr for BitVecSimd<T, E, L>
-where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
-        + Add<Output = T> + Sub<Output = T>
-        + Eq
-        + Sized + Copy + Clone
-        + From<E> + From<[E; L]> + BitContainer<E, L>,
-      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
-        + BitAndAssign + BitOrAssign
-        + Add<Output = E> + Sub<Output = E>
-        + PartialEq
-        + Sized + Copy + Clone + Binary
-        + BitContainerElement
-{
-    type Output = Self;
-    fn bitor(self, rhs: Self) -> Self::Output {
-        self.or(rhs)
+impl_trait!{
+    (PartialEq< BitVecSimd<T, E, L> >),
+    (&BitVecSimd<T, E, L>),
+    {
+        // eq should always ignore the bits > nbits
+        fn eq(&self, other: &BitVecSimd<T, E, L>) -> bool {
+            assert_eq!(self.nbits, other.nbits);
+            self.storage
+                .iter()
+                .zip(other.storage.iter())
+                .all(|(a, b)| a == b)
+        }
     }
 }
 
-impl<T, E, const L: usize> BitXor for BitVecSimd<T, E, L>
-where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
-        + Add<Output = T> + Sub<Output = T>
-        + Eq
-        + Sized + Copy + Clone
-        + From<E> + From<[E; L]> + BitContainer<E, L>,
-      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
-        + BitAndAssign + BitOrAssign
-        + Add<Output = E> + Sub<Output = E>
-        + PartialEq
-        + Sized + Copy + Clone + Binary
-        + BitContainerElement
-{
-    type Output = Self;
-    fn bitxor(self, rhs: Self) -> Self::Output {
-        self.xor(rhs)
+impl_trait!{
+    (BitAnd),
+    (BitVecSimd<T, E, L>),
+    {
+        type Output = Self;
+        fn bitand(self, rhs: Self) -> Self::Output {
+            self.and(rhs)
+        }
     }
 }
 
-impl<T, E, const L: usize> Not for BitVecSimd<T, E, L>
-where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
-        + Add<Output = T> + Sub<Output = T>
-        + Eq
-        + Sized + Copy + Clone
-        + From<E> + From<[E; L]> + BitContainer<E, L>,
-      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
-        + BitAndAssign + BitOrAssign
-        + Add<Output = E> + Sub<Output = E>
-        + PartialEq
-        + Sized + Copy + Clone + Binary
-        + BitContainerElement
-{
-    type Output = Self;
-    fn not(self) -> Self::Output {
-        self.inverse()
+impl_trait!{
+    (BitAnd< &BitVecSimd<T, E, L> >),
+    (BitVecSimd<T, E, L>),
+    {
+        type Output = BitVecSimd<T, E, L>;
+        fn bitand(self, rhs: &Self) -> Self::Output {
+            (&self).and_cloned(rhs)
+        }
     }
 }
 
+impl_trait!{
+    (BitAnd),
+    (&BitVecSimd<T, E, L>),
+    {
+        type Output = BitVecSimd<T, E, L>;
+        fn bitand(self, rhs: Self) -> Self::Output {
+            self.and_cloned(rhs)
+        }
+    }
+}
+
+impl_trait!{
+    (BitAnd< BitVecSimd<T, E, L> >),
+    (&BitVecSimd<T, E, L>),
+    {
+        type Output = BitVecSimd<T, E, L>;
+        fn bitand(self, rhs: BitVecSimd<T, E, L>) -> Self::Output {
+            self.and_cloned(&rhs)
+        }
+    }
+}
+
+impl_trait!{
+    (BitOr),
+    (BitVecSimd<T, E, L>),
+    {
+        type Output = Self;
+        fn bitor(self, rhs: Self) -> Self::Output {
+            self.or(rhs)
+        }
+    }
+}
+
+impl_trait!{
+    (BitOr< &BitVecSimd<T, E, L> >),
+    (BitVecSimd<T, E, L>),
+    {
+        type Output = BitVecSimd<T, E, L>;
+        fn bitor(self, rhs: &Self) -> Self::Output {
+            (&self).or_cloned(rhs)
+        }
+    }
+}
+
+impl_trait!{
+    (BitOr),
+    (&BitVecSimd<T, E, L>),
+    {
+        type Output = BitVecSimd<T, E, L>;
+        fn bitor(self, rhs: Self) -> Self::Output {
+            self.or_cloned(rhs)
+        }
+    }
+}
+
+impl_trait!{
+    (BitOr< BitVecSimd<T, E, L> >),
+    (&BitVecSimd<T, E, L>),
+    {
+        type Output = BitVecSimd<T, E, L>;
+        fn bitor(self, rhs: BitVecSimd<T, E, L>) -> Self::Output {
+            self.or_cloned(&rhs)
+        }
+    }
+}
+
+impl_trait!{
+    (BitXor),
+    (BitVecSimd<T, E, L>),
+    {
+        type Output = Self;
+        fn bitxor(self, rhs: Self) -> Self::Output {
+            self.xor(rhs)
+        }
+    }
+}
+
+impl_trait!{
+    (BitXor< &BitVecSimd<T, E, L> >),
+    (BitVecSimd<T, E, L>),
+    {
+        type Output = BitVecSimd<T, E, L>;
+        fn bitxor(self, rhs: &Self) -> Self::Output {
+            (&self).xor_cloned(rhs)
+        }
+    }
+}
+
+impl_trait!{
+    (BitXor),
+    (&BitVecSimd<T, E, L>),
+    {
+        type Output = BitVecSimd<T, E, L>;
+        fn bitxor(self, rhs: Self) -> Self::Output {
+            self.xor_cloned(rhs)
+        }
+    }
+}
+
+impl_trait!{
+    (BitXor< BitVecSimd<T, E, L> >),
+    (&BitVecSimd<T, E, L>),
+    {
+        type Output = BitVecSimd<T, E, L>;
+        fn bitxor(self, rhs: BitVecSimd<T, E, L>) -> Self::Output {
+            self.xor_cloned(&rhs)
+        }
+    }
+}
+
+impl_trait!{
+    (Not),
+    (BitVecSimd<T, E, L>),
+    {
+        type Output = Self;
+        fn not(self) -> Self::Output {
+            self.inverse()
+        }
+    }
+}
+
+impl_trait!{
+    (Not),
+    (&BitVecSimd<T, E, L>),
+    {
+        type Output = BitVecSimd<T, E, L>;
+        fn not(self) -> Self::Output {
+            self.inverse()
+        }
+    }
+}
+
+
+// Declare the default BitVec type
 pub type BitVec = BitVecSimd::<u64x4, u64, 4>;
 
 #[test]
@@ -1186,13 +1286,17 @@ fn test_bit_vec_all_any() {
 }
 
 #[test]
-fn test_bitvec_and_xor() {
+fn test_bitvec_xor() {
     let bitvec = BitVec::ones(1000);
     let bitvec2 = BitVec::ones(1000);
     let bitvec3 = BitVec::zeros(1000);
     assert_eq!(bitvec.xor_cloned(&bitvec2), BitVec::zeros(1000));
     assert_eq!(bitvec.xor_cloned(&bitvec3), BitVec::ones(1000));
+    assert_eq!(&bitvec ^ &bitvec2, BitVec::zeros(1000));
+    assert_eq!(&bitvec ^ bitvec2.clone(), BitVec::zeros(1000));
+    assert_eq!(bitvec.clone() ^ &bitvec2, BitVec::zeros(1000));
     assert_eq!(bitvec ^ bitvec2, BitVec::zeros(1000));
+
     let mut bitvec = BitVec::ones(1000);
     let bitvec2 = BitVec::ones(1000);
     bitvec.set(400, false);
@@ -1202,12 +1306,15 @@ fn test_bitvec_and_xor() {
 }
 
 #[test]
-fn test_bitvec_and_or() {
+fn test_bitvec_or() {
     let bitvec = BitVec::ones(1000);
     let bitvec2 = BitVec::ones(1000);
     let bitvec3 = BitVec::zeros(1000);
     assert_eq!(bitvec.or_cloned(&bitvec2), BitVec::ones(1000));
     assert_eq!(bitvec.or_cloned(&bitvec3), BitVec::ones(1000));
+    assert_eq!(&bitvec | &bitvec2, BitVec::ones(1000));
+    assert_eq!(&bitvec | bitvec2.clone(), BitVec::ones(1000));
+    assert_eq!(bitvec.clone() | &bitvec2, BitVec::ones(1000));
     assert_eq!(bitvec | bitvec2, BitVec::ones(1000));
     let mut bitvec = BitVec::ones(1000);
     let bitvec2 = BitVec::ones(1000);
@@ -1218,12 +1325,15 @@ fn test_bitvec_and_or() {
 }
 
 #[test]
-fn test_bitvec_and_and() {
+fn test_bitvec_and() {
     let bitvec = BitVec::ones(1000);
     let bitvec2 = BitVec::ones(1000);
     let bitvec3 = BitVec::zeros(1000);
     assert_eq!(bitvec.and_cloned(&bitvec2), BitVec::ones(1000));
     assert_eq!(bitvec.and_cloned(&bitvec3), BitVec::zeros(1000));
+    assert_eq!(&bitvec & &bitvec2, BitVec::ones(1000));
+    assert_eq!(&bitvec & bitvec2.clone(), BitVec::ones(1000));
+    assert_eq!(bitvec.clone() & &bitvec2, BitVec::ones(1000));
     assert_eq!(bitvec & bitvec2, BitVec::ones(1000));
     let mut bitvec = BitVec::ones(1000);
     let bitvec2 = BitVec::ones(1000);
@@ -1237,6 +1347,7 @@ fn test_bitvec_and_and() {
 fn test_bitvec_not() {
     let bitvec = BitVec::ones(1000);
     assert_eq!(bitvec, BitVec::ones(1000));
+    assert_eq!((&bitvec).not(), BitVec::zeros(1000));
     assert_eq!(bitvec.not(), BitVec::zeros(1000));
 }
 
@@ -1249,6 +1360,11 @@ fn test_bitvec_eq() {
     assert_ne!(bitvec, BitVec::ones(1000));
     bitvec.set(50, true);
     assert_eq!(bitvec, BitVec::ones(1000));
+
+    assert!(&bitvec == BitVec::ones(1000));
+    assert!(&bitvec == &BitVec::ones(1000));
+    assert!(bitvec == BitVec::ones(1000));
+    assert!(bitvec == &BitVec::ones(1000));
 }
 
 #[test]

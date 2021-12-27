@@ -59,12 +59,11 @@
 
 use std::{
     fmt::{Binary, Display},
-    marker::PhantomData,
     ops::{Add, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, Not, Shl, Shr, Sub},
 };
 
 use wide::*;
-use smallvec::SmallVec;
+use smallvec::{SmallVec, Array};
 
 // BitContainerElement is the element of a SIMD type BitContainer
 pub trait BitContainerElement {
@@ -129,16 +128,18 @@ impl_BitContainerElement!(u64, 0u64, 1u64, 0xFFFFFFFFFFFFFFFFu64);
 
 // BitContainer is the basic building block for internal storage
 // BitVec is expected to be aligned properly
-pub trait BitContainer<T: BitContainerElement, const L: usize> {
+pub trait BitContainer<const L: usize>
+{
+    type Element: BitContainerElement;
     const BIT_WIDTH: usize;
     const ELEMENT_BIT_WIDTH: usize;
     const LANES: usize;
-    const ZERO_ELEMENT: T;
-    const ONE_ELEMENT: T;
-    const MAX_ELEMENT: T;
+    const ZERO_ELEMENT: Self::Element;
+    const ONE_ELEMENT: Self::Element;
+    const MAX_ELEMENT: Self::Element;
     const ZERO: Self;
     const MAX: Self;
-    fn to_array(self) -> [T; L];
+    fn to_array(self) -> [Self::Element; L];
     fn and_inplace(&mut self, rhs: &Self);
     fn or_inplace(&mut self, rhs: &Self);
     fn xor_inplace(&mut self, rhs: &Self);
@@ -146,7 +147,8 @@ pub trait BitContainer<T: BitContainerElement, const L: usize> {
 
 macro_rules! impl_BitContainer {
     ($type: ty, $elem_type: ty, $lanes: expr) => {
-        impl BitContainer<$elem_type, $lanes> for $type {
+        impl BitContainer<$lanes> for $type {
+            type Element = $elem_type;
             const BIT_WIDTH: usize = <$type>::BITS as usize;
             const ELEMENT_BIT_WIDTH: usize = <$elem_type>::BIT_WIDTH;
             const LANES: usize = $lanes;
@@ -191,14 +193,25 @@ impl_BitContainer!(u64x4, u64, 4);
 /// see the module's document for examples and details.
 ///
 #[derive(Debug, Clone)]
-pub struct BitVecSimd<T: BitContainer<E, L>, E: BitContainerElement, const L: usize> {
+pub struct BitVecSimd<A, const L: usize>
+where
+    A: Array + Index<usize>,
+    <A as Array>::Item: Not<Output = <A as Array>::Item> + BitAnd<Output = <A as Array>::Item> + BitOr<Output = <A as Array>::Item> + BitXor<Output = <A as Array>::Item> + Shl<u32> + Shr<u32>
+        + Add<Output = <A as Array>::Item> + Sub<Output = <A as Array>::Item>
+        + Eq
+        + Sized + Copy + Clone + std::fmt::Debug
+        + From<<<A as Array>::Item as BitContainer<L>>::Element> + From<[<<A as Array>::Item as BitContainer<L>>::Element; L]> + BitContainer<L>,
+    <<A as Array>::Item as BitContainer<L>>::Element: Not<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitAnd<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitOr<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitOrAssign + BitXor<Output = <<A as Array>::Item as BitContainer<L>>::Element> + Shl<u32, Output = <<A as Array>::Item as BitContainer<L>>::Element> + Shr<u32, Output = <<A as Array>::Item as BitContainer<L>>::Element>
+        + BitAndAssign + BitOrAssign
+        + Add<Output = <<A as Array>::Item as BitContainer<L>>::Element> + Sub<Output = <<A as Array>::Item as BitContainer<L>>::Element>
+        + PartialEq
+        + Sized + Copy + Clone + Binary
+        + BitContainerElement,
+{
     // internal representation of bitvec
-    storage: SmallVec<[T; 4]>,
+    storage: SmallVec<A>,
     // actual number of bits exists in storage
     nbits: usize,
-
-    // phantom holding type E
-    phantom: PhantomData<E>,
 }
 
 /// Proc macro can not export BitVec
@@ -217,7 +230,6 @@ macro_rules! impl_operation {
             Self {
                 storage,
                 nbits: self.nbits,
-                phantom: PhantomData,
             }
         }
         pub fn $name_cloned(&self, other: &Self) -> Self {
@@ -232,7 +244,6 @@ macro_rules! impl_operation {
             Self {
                 storage,
                 nbits: self.nbits,
-                phantom: PhantomData,
             }
         }
         pub fn $name_inplace(&mut self, other: &Self) {
@@ -242,19 +253,20 @@ macro_rules! impl_operation {
     };
 }
 
-impl<T, E, const L: usize> BitVecSimd<T, E, L>
+impl<A, const L: usize> BitVecSimd<A, L>
 where
-    T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
-        + Add<Output = T> + Sub<Output = T>
+    A: Array + Index<usize>,
+    <A as Array>::Item: Not<Output = <A as Array>::Item> + BitAnd<Output = <A as Array>::Item> + BitOr<Output = <A as Array>::Item> + BitXor<Output = <A as Array>::Item> + Shl<u32> + Shr<u32>
+        + Add<Output = <A as Array>::Item> + Sub<Output = <A as Array>::Item>
         + Eq
-        + Sized + Copy + Clone
-        + From<E> + From<[E; L]> + BitContainer<E, L>,
-      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
+        + Sized + Copy + Clone + std::fmt::Debug
+        + From<<<A as Array>::Item as BitContainer<L>>::Element> + From<[<<A as Array>::Item as BitContainer<L>>::Element; L]> + BitContainer<L>,
+    <<A as Array>::Item as BitContainer<L>>::Element: Not<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitAnd<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitOr<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitOrAssign + BitXor<Output = <<A as Array>::Item as BitContainer<L>>::Element> + Shl<u32, Output = <<A as Array>::Item as BitContainer<L>>::Element> + Shr<u32, Output = <<A as Array>::Item as BitContainer<L>>::Element>
         + BitAndAssign + BitOrAssign
-        + Add<Output = E> + Sub<Output = E>
+        + Add<Output = <<A as Array>::Item as BitContainer<L>>::Element> + Sub<Output = <<A as Array>::Item as BitContainer<L>>::Element>
         + PartialEq
         + Sized + Copy + Clone + Binary
-        + BitContainerElement
+        + BitContainerElement,
 {
     // convert total bit to length
     // input: Number of bits
@@ -271,17 +283,17 @@ where
     #[inline]
     fn bit_to_len(nbits: usize) -> (usize, usize, usize) {
         (
-            nbits / (T::BIT_WIDTH as usize),
-            (nbits % (T::BIT_WIDTH as usize)) / T::ELEMENT_BIT_WIDTH,
-            nbits % T::ELEMENT_BIT_WIDTH,
+            nbits / (<A as Array>::Item::BIT_WIDTH as usize),
+            (nbits % (<A as Array>::Item::BIT_WIDTH as usize)) / <A as Array>::Item::ELEMENT_BIT_WIDTH,
+            nbits % <A as Array>::Item::ELEMENT_BIT_WIDTH,
         )
     }
 
     #[inline]
-    fn set_bit(flag: bool, bytes: E, offset: u32) -> E {
+    fn set_bit(flag: bool, bytes: <<A as Array>::Item as BitContainer<L>>::Element, offset: u32) -> <<A as Array>::Item as BitContainer<L>>::Element {
         match flag {
-            true => bytes | T::ONE_ELEMENT.wrapping_shl(offset),
-            false => bytes & !T::ONE_ELEMENT.wrapping_shl(offset),
+            true => bytes | <A as Array>::Item::ONE_ELEMENT.wrapping_shl(offset),
+            false => bytes & !<A as Array>::Item::ONE_ELEMENT.wrapping_shl(offset),
         }
     }
 
@@ -295,9 +307,9 @@ where
     /// assert_eq!(bitvec.len(), 10);
     /// ```
     pub fn zeros(nbits: usize) -> Self {
-        let len = (nbits + T::BIT_WIDTH - 1) / T::BIT_WIDTH;
-        let storage = (0..len).map(|_| T::ZERO).collect();
-        Self { storage, nbits, phantom: PhantomData }
+        let len = (nbits + <A as Array>::Item::BIT_WIDTH - 1) / <A as Array>::Item::BIT_WIDTH;
+        let storage = (0..len).map(|_| <<A as Array>::Item as BitContainer<L>>::ZERO).collect();
+        Self { storage, nbits }
     }
 
     /// Create a bitvec containing all 0 .. nbits elements.
@@ -311,16 +323,18 @@ where
     /// ```
     pub fn ones(nbits: usize) -> Self {
         let (len, bytes, bits) = Self::bit_to_len(nbits);
-        let mut storage = (0..len).map(|_| T::MAX).collect::<SmallVec<_>>();
+        let mut storage = (0..len).map(|_| <A as Array>::Item::MAX).collect::<SmallVec<_>>();
         if bytes > 0 || bits > 0 {
-            let mut arr = [T::MAX_ELEMENT; L];
-            arr[bytes] = T::MAX_ELEMENT.clear_high_bits((T::ELEMENT_BIT_WIDTH - bits) as u32);
-            for i in (bytes + 1)..L {
-                arr[i] = T::ZERO_ELEMENT;
+            let mut arr = <<A as Array>::Item as BitContainer<L>>::MAX.to_array();
+            arr[bytes] = <<A as Array>::Item as BitContainer<L>>::MAX_ELEMENT.clear_high_bits((<A as Array>::Item::ELEMENT_BIT_WIDTH - bits) as u32);
+            for i in (bytes + 1)..<A as Array>::Item::LANES {
+                arr[i] = <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT;
             }
-            storage.push(T::from(arr));
+            //let x = <<A as Array>::Item as BitContainer>::ElementArray
+
+            storage.push(<A as Array>::Item::from(arr));
         }
-        Self { storage, nbits, phantom: PhantomData }
+        Self { storage, nbits }
     }
 
     /// Create a bitvec from an Iterator of bool.
@@ -344,23 +358,23 @@ where
     pub fn from_bool_iterator<I: Iterator<Item = bool>>(i: I) -> Self {
         // FIXME: any better implementation?
         let mut storage = SmallVec::new();
-        let mut current_slice = [T::ZERO_ELEMENT; L];
+        let mut current_slice = <<A as Array>::Item as BitContainer<L>>::ZERO.to_array();
         let mut nbits = 0;
         for b in i {
             if b {
-                current_slice[nbits % T::BIT_WIDTH / T::ELEMENT_BIT_WIDTH] |=
-                    T::ONE_ELEMENT.wrapping_shl((nbits % T::ELEMENT_BIT_WIDTH) as u32);
+                current_slice[nbits % <A as Array>::Item::BIT_WIDTH / <A as Array>::Item::ELEMENT_BIT_WIDTH] |=
+                    <A as Array>::Item::ONE_ELEMENT.wrapping_shl((nbits % <A as Array>::Item::ELEMENT_BIT_WIDTH) as u32);
             }
             nbits += 1;
-            if nbits % T::BIT_WIDTH == 0 {
-                storage.push(T::from(current_slice));
-                current_slice = [T::ZERO_ELEMENT; L];
+            if nbits % <A as Array>::Item::BIT_WIDTH == 0 {
+                storage.push(<A as Array>::Item::from(current_slice));
+                current_slice = <<A as Array>::Item as BitContainer<L>>::ZERO.to_array();
             }
         }
-        if nbits % T::BIT_WIDTH > 0 {
-            storage.push(T::from(current_slice));
+        if nbits % <A as Array>::Item::BIT_WIDTH > 0 {
+            storage.push(<A as Array>::Item::from(current_slice));
         }
-        Self { storage, nbits, phantom: PhantomData }
+        Self { storage, nbits }
     }
 
     /// Initialize from a set of integers.
@@ -392,27 +406,23 @@ where
     /// assert_eq!(bitvec.get(0), Some(true));
     /// assert_eq!(bitvec.get(1), Some(true));
     /// ```
-    pub fn from_slice_raw(slice: &[E]) -> Self {
+    pub fn from_slice_raw(slice: &[<<A as Array>::Item as BitContainer<L>>::Element]) -> Self {
         let iter = &mut slice.iter();
-        let mut storage = SmallVec::with_capacity((slice.len() + T::LANES - 1) / T::LANES);
-
-        let a: u64 = 0;
-        a.count_ones();
+        let mut storage = SmallVec::with_capacity((slice.len() + <A as Array>::Item::LANES - 1) / <A as Array>::Item::LANES);
 
         while let Some(a0) = iter.next() {
-            let mut arr = [T::ZERO_ELEMENT; L];
+            let mut arr = <<A as Array>::Item as BitContainer<L>>::ZERO.to_array();
             arr[0] = *a0;
-            for i in 1..T::LANES {
-                arr[i] = *(iter.next().unwrap_or(&T::ZERO_ELEMENT));
+            for i in 1..<A as Array>::Item::LANES {
+                arr[i] = *(iter.next().unwrap_or(&<<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT));
             }
 
-            storage.push(T::from(arr));
+            storage.push(<A as Array>::Item::from(arr));
         }
 
         Self {
             storage,
-            nbits: slice.len() * T::ELEMENT_BIT_WIDTH as usize,
-            phantom: PhantomData,
+            nbits: slice.len() * <A as Array>::Item::ELEMENT_BIT_WIDTH as usize,
         }
     }
 
@@ -432,25 +442,25 @@ where
         self.nbits
     }
 
-    fn clear_arr_high_bits(arr: &mut [E], bytes: usize, bits: usize) {
+    fn clear_arr_high_bits(arr: &mut [<<A as Array>::Item as BitContainer<L>>::Element], bytes: usize, bits: usize) {
         let mut end_bytes = bytes;
         if bits > 0 {
-            arr[end_bytes] = arr[end_bytes].clear_high_bits((T::ELEMENT_BIT_WIDTH - bits) as u32);
+            arr[end_bytes] = arr[end_bytes].clear_high_bits((<A as Array>::Item::ELEMENT_BIT_WIDTH - bits) as u32);
             end_bytes += 1;
         }
-        for byte_index in end_bytes..T::LANES {
-            arr[byte_index] = T::ZERO_ELEMENT;
+        for byte_index in end_bytes..<A as Array>::Item::LANES {
+            arr[byte_index] = <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT;
         }
     }
 
-    fn fill_arr_high_bits(arr: &mut [E], bytes: usize, bits: usize, bytes_max: usize) {
+    fn fill_arr_high_bits(arr: &mut [<<A as Array>::Item as BitContainer<L>>::Element], bytes: usize, bits: usize, bytes_max: usize) {
         let mut end_bytes = bytes;
         if bits > 0 {
-            arr[end_bytes] |= T::MAX_ELEMENT.clear_low_bits(bits as u32);
+            arr[end_bytes] |= <A as Array>::Item::MAX_ELEMENT.clear_low_bits(bits as u32);
             end_bytes += 1;
         }
         for byte_index in end_bytes..bytes_max {
-            arr[byte_index] = T::MAX_ELEMENT;
+            arr[byte_index] = <A as Array>::Item::MAX_ELEMENT;
         }
     }
 
@@ -458,7 +468,7 @@ where
         if bytes > 0 || bits > 0 {
             let mut arr = self.storage[i].to_array();
             Self::clear_arr_high_bits(&mut arr, bytes, bits);
-            self.storage[i] = T::from(arr);
+            self.storage[i] = <A as Array>::Item::from(arr);
         }
     }
 
@@ -466,7 +476,7 @@ where
         if bytes > 0 || bits > 0 {
             let mut arr = self.storage[i].to_array();
             Self::fill_arr_high_bits(&mut arr, bytes, bits, bytes_max);
-            self.storage[i] = T::from(arr);
+            self.storage[i] = <A as Array>::Item::from(arr);
         }
     }
 
@@ -479,11 +489,11 @@ where
             debug_assert!(old_bytes == bytes && bits >= old_bits);
             if bits > old_bits {
                 // fix the only byte
-                arr[bytes] |= T::MAX_ELEMENT.clear_low_bits(old_bits as u32);
+                arr[bytes] |= <A as Array>::Item::MAX_ELEMENT.clear_low_bits(old_bits as u32);
             }
         }
         Self::clear_arr_high_bits(&mut arr, bytes, bits);
-        self.storage[i] = T::from(arr);
+        self.storage[i] = <A as Array>::Item::from(arr);
     }
 
     /// Resize this bitvec to `nbits` in-place.
@@ -502,13 +512,13 @@ where
     /// ```
     pub fn resize(&mut self, nbits: usize, value: bool) {
         let (i, bytes, bits) = Self::bit_to_len(nbits);
-        self.storage.resize(if bytes > 0 || bits > 0 { i + 1 } else { i }, if value { T::MAX } else { T::ZERO });
+        self.storage.resize(if bytes > 0 || bits > 0 { i + 1 } else { i }, if value { <A as Array>::Item::MAX } else { <<A as Array>::Item as BitContainer<L>>::ZERO });
         if nbits < self.nbits {
             self.clear_high_bits(i, bytes, bits);
         } else if value { // old_i <= i && filling 1
             let (old_i, old_bytes, old_bits) = Self::bit_to_len(self.nbits);
             if old_i < i {
-                self.fill_high_bits(old_i, old_bytes, old_bits, T::LANES);
+                self.fill_high_bits(old_i, old_bytes, old_bits, <A as Array>::Item::LANES);
                 self.clear_high_bits(i, bytes, bits);
             } else if bytes > 0 || bits > 0 {
                 self.fix_high_bits(old_i, old_bytes, old_bits, i, bytes, bits);
@@ -556,31 +566,31 @@ where
         if self.nbits <= index {
             let i = if bytes > 0 || bits > 0 { i + 1 } else { i };
             self.storage
-                .extend((0..i - self.storage.len()).map(move |_| T::ZERO));
+                .extend((0..i - self.storage.len()).map(move |_| <<A as Array>::Item as BitContainer<L>>::ZERO));
             self.nbits = index + 1;
         }
         let mut arr = self.storage[i].to_array();
         arr[bytes] = Self::set_bit(flag, arr[bytes], bits as u32);
-        self.storage[i] = T::from(arr);
+        self.storage[i] = <A as Array>::Item::from(arr);
     }
 
     /// Set all items in bitvec to false
     pub fn set_all_false(&mut self) {
-        self.storage.iter_mut().for_each(move |x| *x = T::ZERO);
+        self.storage.iter_mut().for_each(move |x| *x = <<A as Array>::Item as BitContainer<L>>::ZERO);
     }
 
     /// Set all items in bitvec to true
     pub fn set_all_true(&mut self) {
         let (_, bytes, bits) = Self::bit_to_len(self.nbits);
-        self.storage.iter_mut().for_each(move |x| *x = T::MAX);
+        self.storage.iter_mut().for_each(move |x| *x = <A as Array>::Item::MAX);
         if bytes > 0 || bits > 0 {
-            let mut arr = [T::MAX_ELEMENT; L];
-            arr[bytes] = T::MAX_ELEMENT.clear_high_bits((T::ELEMENT_BIT_WIDTH - bits) as u32);
-            for i in (bytes + 1)..L {
-                arr[i] = T::ZERO_ELEMENT;
+            let mut arr = <<A as Array>::Item as BitContainer<L>>::MAX.to_array();
+            arr[bytes] = <A as Array>::Item::MAX_ELEMENT.clear_high_bits((<A as Array>::Item::ELEMENT_BIT_WIDTH - bits) as u32);
+            for i in (bytes + 1)..<A as Array>::Item::LANES {
+                arr[i] = <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT;
             }
             // unwrap here is safe since bytes > 0 || bits > 0 => self.nbits > 0
-            *(self.storage.last_mut().unwrap()) = T::from(arr);
+            *(self.storage.last_mut().unwrap()) = <A as Array>::Item::from(arr);
         }
     }
 
@@ -614,7 +624,7 @@ where
             None
         } else {
             let (index, bytes, bits) = Self::bit_to_len(index);
-            Some(self.storage[index].to_array()[bytes] & T::ONE_ELEMENT.wrapping_shl(bits as u32) != T::ZERO_ELEMENT)
+            Some(self.storage[index].to_array()[bytes] & <<A as Array>::Item as BitContainer<L>>::ONE_ELEMENT.wrapping_shl(bits as u32) != <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT)
         }
     }
 
@@ -640,7 +650,7 @@ where
             panic!("index out of bounds {} > {}", index, self.nbits);
         } else {
             let (index, bytes, bits) = Self::bit_to_len(index);
-            (self.storage[index].to_array()[bytes] & T::ONE_ELEMENT.wrapping_shl(bits as u32)) != T::ZERO_ELEMENT
+            (self.storage[index].to_array()[bytes] & <<A as Array>::Item as BitContainer<L>>::ONE_ELEMENT.wrapping_shl(bits as u32)) != <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT
         }
     }
 
@@ -693,11 +703,11 @@ where
         let mut storage = self.storage.iter().map(|x| !(*x)).collect::<SmallVec<_>>();
         if bytes > 0 || bits > 0 {
             assert_eq!(storage.len(), i + 1);
-            let s: &mut T = &mut storage[i];
+            let s: &mut <A as Array>::Item = &mut storage[i];
             let mut arr = s.to_array();
-            arr[bytes] = arr[bytes].clear_high_bits((T::ELEMENT_BIT_WIDTH - bits) as u32);
-            for index in (bytes + 1)..T::LANES {
-                arr[index] = T::ZERO_ELEMENT;
+            arr[bytes] = arr[bytes].clear_high_bits((<A as Array>::Item::ELEMENT_BIT_WIDTH - bits) as u32);
+            for index in (bytes + 1)..<A as Array>::Item::LANES {
+                arr[index] = <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT;
             }
             *s = arr.into();
         }
@@ -705,7 +715,6 @@ where
         Self {
             storage,
             nbits: self.nbits,
-            phantom: PhantomData,
         }
     }
 
@@ -725,7 +734,7 @@ where
     pub fn count_ones(&self) -> usize {
         self.storage
             .iter()
-            .map(|x| x.to_array().iter().map(|a| a.count_ones()).sum::<u32>())
+            .map(|x| x.to_array().into_iter().map(|a| a.count_ones()).sum::<u32>())
             .sum::<u32>() as usize
     }
 
@@ -750,15 +759,15 @@ where
             .storage
             .iter()
             .take(i)
-            .map(|x| x.to_array().iter().map(|a| a.count_ones()).sum::<u32>())
+            .map(|x| x.to_array().into_iter().map(|a| a.count_ones()).sum::<u32>())
             .sum::<u32>();
         if bytes > 0 || bits > 0 {
             // Safe unwrap here
             let arr = self.storage.iter().skip(i).next().unwrap().to_array();
-            ones += arr.iter().take(bytes).map(|x| x.count_ones()).sum::<u32>();
+            ones += arr.into_iter().take(bytes).map(|x| x.count_ones()).sum::<u32>();
             if bits > 0 {
-                let x = arr.iter().skip(bytes).next().unwrap();
-                ones += (*x & (T::ONE_ELEMENT.wrapping_shl((bits + 1) as u32) - T::ONE_ELEMENT)).count_ones();
+                let x = arr.into_iter().skip(bytes).next().unwrap();
+                ones += (x & (<A as Array>::Item::ONE_ELEMENT.wrapping_shl((bits + 1) as u32) - <A as Array>::Item::ONE_ELEMENT)).count_ones();
             }
         }
         ones as usize
@@ -778,26 +787,26 @@ where
     pub fn leading_zeros(&self) -> usize {
         let mut zero_item_count = 0;
         let mut iter = self.storage.iter().rev().skip_while(|x| {
-            match **x == T::ZERO {
-                true => { zero_item_count += T::LANES; true },
+            match **x == <<A as Array>::Item as BitContainer<L>>::ZERO {
+                true => { zero_item_count += <A as Array>::Item::LANES; true },
                 false => false,
             }
         });
 
         if let Some(x) = iter.next() {
             let arr = x.to_array();
-            let mut x_iter = arr.iter().rev().skip_while(|y| {
-                match **y == T::ZERO_ELEMENT {
+            let mut x_iter = arr.into_iter().rev().skip_while(|y| {
+                match *y == <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT {
                     true => { zero_item_count += 1; true },
                     false => false,
                 }
             });
 
             // Safe unwrap here, since there should be at least one non-zero item in arr.
-            let y = *(x_iter.next().unwrap());
-            let raw_leading_zeros = zero_item_count * T::ELEMENT_BIT_WIDTH + y.leading_zeros() as usize;
-            let mut extra_leading_zeros = self.nbits % T::BIT_WIDTH;
-            if extra_leading_zeros > 0 { extra_leading_zeros = T::BIT_WIDTH - extra_leading_zeros }
+            let y = x_iter.next().unwrap();
+            let raw_leading_zeros = zero_item_count * <A as Array>::Item::ELEMENT_BIT_WIDTH + y.leading_zeros() as usize;
+            let mut extra_leading_zeros = self.nbits % <A as Array>::Item::BIT_WIDTH;
+            if extra_leading_zeros > 0 { extra_leading_zeros = <A as Array>::Item::BIT_WIDTH - extra_leading_zeros }
             return raw_leading_zeros as usize - extra_leading_zeros;
         }
 
@@ -808,7 +817,7 @@ where
     pub fn any(&self) -> bool {
         self.storage
             .iter()
-            .any(|x| x.to_array().iter().map(|a| a.count_ones()).sum::<u32>() > 0)
+            .any(|x| x.to_array().into_iter().map(|a| a.count_ones()).sum::<u32>() > 0)
     }
 
     /// return true if contains self.len elements
@@ -858,19 +867,20 @@ where
     }
 }
 
-impl<T, E, I: Iterator<Item = bool>, const L: usize> From<I> for BitVecSimd<T, E, L>
+impl<A, I: Iterator<Item = bool>, const L: usize> From<I> for BitVecSimd<A, L>
 where
-    T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
-        + Add<Output = T> + Sub<Output = T>
+    A: Array + Index<usize>,
+    <A as Array>::Item: Not<Output = <A as Array>::Item> + BitAnd<Output = <A as Array>::Item> + BitOr<Output = <A as Array>::Item> + BitXor<Output = <A as Array>::Item> + Shl<u32> + Shr<u32>
+        + Add<Output = <A as Array>::Item> + Sub<Output = <A as Array>::Item>
         + Eq
-        + Sized + Copy + Clone
-        + From<E> + From<[E; L]> + BitContainer<E, L>,
-      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
+        + Sized + Copy + Clone + std::fmt::Debug
+        + From<<<A as Array>::Item as BitContainer<L>>::Element> + From<[<<A as Array>::Item as BitContainer<L>>::Element; L]> + BitContainer<L>,
+    <<A as Array>::Item as BitContainer<L>>::Element: Not<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitAnd<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitOr<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitOrAssign + BitXor<Output = <<A as Array>::Item as BitContainer<L>>::Element> + Shl<u32, Output = <<A as Array>::Item as BitContainer<L>>::Element> + Shr<u32, Output = <<A as Array>::Item as BitContainer<L>>::Element>
         + BitAndAssign + BitOrAssign
-        + Add<Output = E> + Sub<Output = E>
+        + Add<Output = <<A as Array>::Item as BitContainer<L>>::Element> + Sub<Output = <<A as Array>::Item as BitContainer<L>>::Element>
         + PartialEq
         + Sized + Copy + Clone + Binary
-        + BitContainerElement
+        + BitContainerElement,
 {
     fn from(i: I) -> Self {
         Self::from_bool_iterator(i)
@@ -884,33 +894,35 @@ macro_rules! impl_trait {
         { $( $body:tt )* }
     ) =>
     {
-        impl<T, E, const L: usize> $( $name )+ for $( $name1 )+
-where T: Not<Output = T> + BitAnd<Output = T> + BitOr<Output = T> + BitXor<Output = T> + Shl<u32> + Shr<u32>
-        + Add<Output = T> + Sub<Output = T>
-        + Eq
-        + Sized + Copy + Clone
-        + From<E> + From<[E; L]> + BitContainer<E, L>,
-      E: Not<Output = E> + BitAnd<Output = E> + BitOr<Output = E> + BitOrAssign + BitXor<Output = E> + Shl<u32, Output = E> + Shr<u32, Output = E>
-        + BitAndAssign + BitOrAssign
-        + Add<Output = E> + Sub<Output = E>
-        + PartialEq
-        + Sized + Copy + Clone + Binary
-        + BitContainerElement
+        impl<A, const L: usize> $( $name )+ for $( $name1 )+
+        where
+        A: Array + Index<usize>,
+        <A as Array>::Item: Not<Output = <A as Array>::Item> + BitAnd<Output = <A as Array>::Item> + BitOr<Output = <A as Array>::Item> + BitXor<Output = <A as Array>::Item> + Shl<u32> + Shr<u32>
+            + Add<Output = <A as Array>::Item> + Sub<Output = <A as Array>::Item>
+            + Eq
+            + Sized + Copy + Clone + std::fmt::Debug
+            + From<<<A as Array>::Item as BitContainer<L>>::Element> + From<[<<A as Array>::Item as BitContainer<L>>::Element; L]> + BitContainer<L>,
+        <<A as Array>::Item as BitContainer<L>>::Element: Not<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitAnd<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitOr<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitOrAssign + BitXor<Output = <<A as Array>::Item as BitContainer<L>>::Element> + Shl<u32, Output = <<A as Array>::Item as BitContainer<L>>::Element> + Shr<u32, Output = <<A as Array>::Item as BitContainer<L>>::Element>
+            + BitAndAssign + BitOrAssign
+            + Add<Output = <<A as Array>::Item as BitContainer<L>>::Element> + Sub<Output = <<A as Array>::Item as BitContainer<L>>::Element>
+            + PartialEq
+            + Sized + Copy + Clone + Binary
+            + BitContainerElement,
         { $( $body )* }
     };
 }
 
 impl_trait! {
-    (From< BitVecSimd<T, E, L> >),
+    (From< BitVecSimd<A, L> >),
     (Vec<bool>),
 {
-    fn from(v: BitVecSimd<T, E, L>) -> Self {
+    fn from(v: BitVecSimd<A, L>) -> Self {
         v.storage
             .into_iter()
             .flat_map(|x| x.to_array())
                 .flat_map(|x| {
-                    (0..T::ELEMENT_BIT_WIDTH)
-                        .map(move |i| (x.wrapping_shr(i as u32)) & T::ONE_ELEMENT != T::ZERO_ELEMENT)
+                    (0..<A as Array>::Item::ELEMENT_BIT_WIDTH)
+                        .map(move |i| (x.wrapping_shr(i as u32)) & <<A as Array>::Item as BitContainer<L>>::ONE_ELEMENT != <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT)
                 })
             .take(v.nbits)
             .collect()
@@ -919,14 +931,14 @@ impl_trait! {
 }
 
 impl_trait! {
-    (From< BitVecSimd<T, E, L> >),
+    (From< BitVecSimd<A, L> >),
     (Vec<usize>),
 {
-    fn from(v: BitVecSimd<T, E, L>) -> Self {
+    fn from(v: BitVecSimd<A, L>) -> Self {
         v.storage
             .into_iter()
             .flat_map(|x| x.to_array())
-            .flat_map(|x| { (0..T::ELEMENT_BIT_WIDTH).map(move |i| (x.wrapping_shr(i as u32)) & T::ONE_ELEMENT != T::ZERO_ELEMENT) })
+            .flat_map(|x| { (0..<A as Array>::Item::ELEMENT_BIT_WIDTH).map(move |i| (x.wrapping_shr(i as u32)) & <<A as Array>::Item as BitContainer<L>>::ONE_ELEMENT != <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT) })
             .take(v.nbits)
             .enumerate()
             .filter(|(_, b)| *b)
@@ -938,7 +950,7 @@ impl_trait! {
 
 impl_trait! {
     (Index<usize>),
-    (BitVecSimd<T, E, L>),
+    (BitVecSimd<A, L>),
     {
         type Output = bool;
         fn index(&self, index: usize) -> &Self::Output {
@@ -953,7 +965,7 @@ impl_trait! {
 
 impl_trait! {
     (Display),
-    (BitVecSimd<T, E, L>),
+    (BitVecSimd<A, L>),
     {
         fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             for i in 0..self.nbits {
@@ -977,23 +989,23 @@ macro_rules! impl_eq_fn {
     }
 }
 
-impl_trait! { (PartialEq), (BitVecSimd<T, E, L>), { impl_eq_fn!(&Self); } }
-impl_trait! { (PartialEq< &BitVecSimd<T, E, L> >), (BitVecSimd<T, E, L>), { impl_eq_fn!(&&Self); } } 
-impl_trait! { (PartialEq< &mut BitVecSimd<T, E, L> >), (BitVecSimd<T, E, L>), { impl_eq_fn!(&&mut Self); } }
-impl_trait! { (PartialEq< BitVecSimd<T, E, L> >), (&BitVecSimd<T, E, L>), { impl_eq_fn!(&BitVecSimd<T, E, L>); } }
-impl_trait! { (PartialEq< BitVecSimd<T, E, L> >), (&mut BitVecSimd<T, E, L>), { impl_eq_fn!(&BitVecSimd<T, E, L>); } }
+impl_trait! { (PartialEq), (BitVecSimd<A, L>), { impl_eq_fn!(&Self); } }
+impl_trait! { (PartialEq< &BitVecSimd<A, L> >), (BitVecSimd<A, L>), { impl_eq_fn!(&&Self); } } 
+impl_trait! { (PartialEq< &mut BitVecSimd<A, L> >), (BitVecSimd<A, L>), { impl_eq_fn!(&&mut Self); } }
+impl_trait! { (PartialEq< BitVecSimd<A, L> >), (&BitVecSimd<A, L>), { impl_eq_fn!(&BitVecSimd<A, L>); } }
+impl_trait! { (PartialEq< BitVecSimd<A, L> >), (&mut BitVecSimd<A, L>), { impl_eq_fn!(&BitVecSimd<A, L>); } }
 
 macro_rules! impl_bit_op_fn {
     ($fn:ident, $op:ident, ( $( $rhs:tt )+ )) =>
     {
-        type Output = BitVecSimd<T, E, L>;
+        type Output = BitVecSimd<A, L>;
         fn $fn(self, rhs: $( $rhs )+) -> Self::Output {
             self.$op(rhs)
         }
     };
     ($fn:ident, $op:ident, &, ( $( $rhs:tt )+ )) =>
     {
-        type Output = BitVecSimd<T, E, L>;
+        type Output = BitVecSimd<A, L>;
         fn $fn(self, rhs: $( $rhs )+) -> Self::Output {
             self.$op(&rhs)
         }
@@ -1002,15 +1014,15 @@ macro_rules! impl_bit_op_fn {
 
 macro_rules! impl_bit_op {
     ($trait:ident, $fn:ident, $op:ident, $op_cloned:ident) => {
-        impl_trait! {($trait), (BitVecSimd<T, E, L>), { impl_bit_op_fn!($fn, $op, (Self)); } } // a & b
-        impl_trait! {($trait< &BitVecSimd<T, E, L> >), (BitVecSimd<T, E, L>), { impl_bit_op_fn!($fn, $op_cloned, (&Self)); } } // a & &b
-        impl_trait! { ($trait< &mut BitVecSimd<T, E, L> >), (BitVecSimd<T, E, L>), { impl_bit_op_fn!($fn, $op_cloned, (&mut Self)); } } // a & &mut b
-        impl_trait! { ($trait< BitVecSimd<T, E, L> >), (&BitVecSimd<T, E, L>), { impl_bit_op_fn!($fn, $op_cloned, &, (BitVecSimd<T, E, L>)); } } // &a & b
-        impl_trait! { ($trait), (&BitVecSimd<T, E, L>), { impl_bit_op_fn!($fn, $op_cloned, (Self)); } } // &a & &b
-        impl_trait! { ($trait< &mut BitVecSimd<T, E, L> >), (&BitVecSimd<T, E, L>), { impl_bit_op_fn!($fn, $op_cloned, (&mut BitVecSimd<T, E, L>)); } } // &a & &mut b
-        impl_trait! { ($trait< BitVecSimd<T, E, L> >), (&mut BitVecSimd<T, E, L>), { impl_bit_op_fn!($fn, $op_cloned, &, (BitVecSimd<T, E, L>)); } } // &mut a & b
-        impl_trait! { ($trait< &BitVecSimd<T, E, L> >), (&mut BitVecSimd<T, E, L>), { impl_bit_op_fn!($fn, $op_cloned, (&BitVecSimd<T, E, L>)); } } // &mut a & &b
-        impl_trait! { ($trait), (&mut BitVecSimd<T, E, L>), { impl_bit_op_fn!($fn, $op_cloned, (Self)); } } // &mut a & &mut b
+        impl_trait! {($trait), (BitVecSimd<A, L>), { impl_bit_op_fn!($fn, $op, (Self)); } } // a & b
+        impl_trait! {($trait< &BitVecSimd<A, L> >), (BitVecSimd<A, L>), { impl_bit_op_fn!($fn, $op_cloned, (&Self)); } } // a & &b
+        impl_trait! { ($trait< &mut BitVecSimd<A, L> >), (BitVecSimd<A, L>), { impl_bit_op_fn!($fn, $op_cloned, (&mut Self)); } } // a & &mut b
+        impl_trait! { ($trait< BitVecSimd<A, L> >), (&BitVecSimd<A, L>), { impl_bit_op_fn!($fn, $op_cloned, &, (BitVecSimd<A, L>)); } } // &a & b
+        impl_trait! { ($trait), (&BitVecSimd<A, L>), { impl_bit_op_fn!($fn, $op_cloned, (Self)); } } // &a & &b
+        impl_trait! { ($trait< &mut BitVecSimd<A, L> >), (&BitVecSimd<A, L>), { impl_bit_op_fn!($fn, $op_cloned, (&mut BitVecSimd<A, L>)); } } // &a & &mut b
+        impl_trait! { ($trait< BitVecSimd<A, L> >), (&mut BitVecSimd<A, L>), { impl_bit_op_fn!($fn, $op_cloned, &, (BitVecSimd<A, L>)); } } // &mut a & b
+        impl_trait! { ($trait< &BitVecSimd<A, L> >), (&mut BitVecSimd<A, L>), { impl_bit_op_fn!($fn, $op_cloned, (&BitVecSimd<A, L>)); } } // &mut a & &b
+        impl_trait! { ($trait), (&mut BitVecSimd<A, L>), { impl_bit_op_fn!($fn, $op_cloned, (Self)); } } // &mut a & &mut b
     };
 }
 
@@ -1020,16 +1032,16 @@ impl_bit_op!(BitXor, bitxor, xor, xor_cloned);
 
 macro_rules! impl_not_fn {
     () => {
-        type Output = BitVecSimd<T, E, L>;
+        type Output = BitVecSimd<A, L>;
         fn not(self) -> Self::Output {
             self.inverse()
         }
     };
 }
 
-impl_trait! {(Not), (BitVecSimd<T, E, L>), { impl_not_fn!(); }}
-impl_trait! {(Not), (&BitVecSimd<T, E, L>), { impl_not_fn!(); }}
-impl_trait! {(Not), (&mut BitVecSimd<T, E, L>), { impl_not_fn!(); }}
+impl_trait! {(Not), (BitVecSimd<A, L>), { impl_not_fn!(); }}
+impl_trait! {(Not), (&BitVecSimd<A, L>), { impl_not_fn!(); }}
+impl_trait! {(Not), (&mut BitVecSimd<A, L>), { impl_not_fn!(); }}
 
 macro_rules! impl_bit_assign_fn {
     (($( $rhs:tt )+), $fn:ident, $fn1:ident, &) => {
@@ -1044,39 +1056,40 @@ macro_rules! impl_bit_assign_fn {
     }
 }
 
-impl_trait! {(BitAndAssign), (BitVecSimd<T, E, L>), { impl_bit_assign_fn!((Self), bitand_assign, and_inplace, &); } }
-impl_trait! {(BitAndAssign< &BitVecSimd<T, E, L> >), (BitVecSimd<T, E, L>), { impl_bit_assign_fn!((&BitVecSimd<T, E, L>), bitand_assign, and_inplace); } }
-impl_trait! {(BitAndAssign< &mut BitVecSimd<T, E, L> >), (BitVecSimd<T, E, L>), { impl_bit_assign_fn!((&mut BitVecSimd<T, E, L>), bitand_assign, and_inplace); } }
-impl_trait! {(BitOrAssign), (BitVecSimd<T, E, L>), { impl_bit_assign_fn!((Self), bitor_assign, or_inplace, &); } }
-impl_trait! {(BitOrAssign< &BitVecSimd<T, E, L> >), (BitVecSimd<T, E, L>), { impl_bit_assign_fn!((&BitVecSimd<T, E, L>), bitor_assign, or_inplace); } }
-impl_trait! {(BitOrAssign< &mut BitVecSimd<T, E, L> >), (BitVecSimd<T, E, L>), { impl_bit_assign_fn!((&mut BitVecSimd<T, E, L>), bitor_assign, or_inplace); } }
-impl_trait! {(BitXorAssign), (BitVecSimd<T, E, L>), { impl_bit_assign_fn!((Self), bitxor_assign, xor_inplace, &); } }
-impl_trait! {(BitXorAssign< &BitVecSimd<T, E, L> >), (BitVecSimd<T, E, L>), { impl_bit_assign_fn!((&BitVecSimd<T, E, L>), bitxor_assign, xor_inplace); } }
-impl_trait! {(BitXorAssign< &mut BitVecSimd<T, E, L> >), (BitVecSimd<T, E, L>), { impl_bit_assign_fn!((&mut BitVecSimd<T, E, L>), bitxor_assign, xor_inplace); } }
+impl_trait! {(BitAndAssign), (BitVecSimd<A, L>), { impl_bit_assign_fn!((Self), bitand_assign, and_inplace, &); } }
+impl_trait! {(BitAndAssign< &BitVecSimd<A, L> >), (BitVecSimd<A, L>), { impl_bit_assign_fn!((&BitVecSimd<A, L>), bitand_assign, and_inplace); } }
+impl_trait! {(BitAndAssign< &mut BitVecSimd<A, L> >), (BitVecSimd<A, L>), { impl_bit_assign_fn!((&mut BitVecSimd<A, L>), bitand_assign, and_inplace); } }
+impl_trait! {(BitOrAssign), (BitVecSimd<A, L>), { impl_bit_assign_fn!((Self), bitor_assign, or_inplace, &); } }
+impl_trait! {(BitOrAssign< &BitVecSimd<A, L> >), (BitVecSimd<A, L>), { impl_bit_assign_fn!((&BitVecSimd<A, L>), bitor_assign, or_inplace); } }
+impl_trait! {(BitOrAssign< &mut BitVecSimd<A, L> >), (BitVecSimd<A, L>), { impl_bit_assign_fn!((&mut BitVecSimd<A, L>), bitor_assign, or_inplace); } }
+impl_trait! {(BitXorAssign), (BitVecSimd<A, L>), { impl_bit_assign_fn!((Self), bitxor_assign, xor_inplace, &); } }
+impl_trait! {(BitXorAssign< &BitVecSimd<A, L> >), (BitVecSimd<A, L>), { impl_bit_assign_fn!((&BitVecSimd<A, L>), bitxor_assign, xor_inplace); } }
+impl_trait! {(BitXorAssign< &mut BitVecSimd<A, L> >), (BitVecSimd<A, L>), { impl_bit_assign_fn!((&mut BitVecSimd<A, L>), bitxor_assign, xor_inplace); } }
 
 // Declare the default BitVec type
-pub type BitVec = BitVecSimd<u64x4, u64, 4>;
+pub type BitVec = BitVecSimd<[u64x4; 4], 4>;
 
 #[test]
 fn test_bit_to_len() {
+    type T = BitVecSimd<[u64x4; 4], 4>;
     // contain nothing
-    assert_eq!(BitVecSimd::<u64x4, u64, 4>::bit_to_len(0), (0, 0, 0));
-    assert_eq!(BitVecSimd::<u64x4, u64, 4>::bit_to_len(1), (0, 0, 1));
+    assert_eq!(T::bit_to_len(0), (0, 0, 0));
+    assert_eq!(T::bit_to_len(1), (0, 0, 1));
     // 64bit only stores in a u64
-    assert_eq!(BitVecSimd::<u64x4, u64, 4>::bit_to_len(64), (0, 1, 0));
+    assert_eq!(T::bit_to_len(64), (0, 1, 0));
     // extra bit stores in extra u64
-    assert_eq!(BitVecSimd::<u64x4, u64, 4>::bit_to_len(65), (0, 1, 1));
+    assert_eq!(T::bit_to_len(65), (0, 1, 1));
     // BIT_WIDTH bit only stores in a vector
     assert_eq!(
-        BitVecSimd::<u64x4, u64, 4>::bit_to_len(u64x4::BIT_WIDTH),
+        T::bit_to_len(u64x4::BIT_WIDTH),
         (1, 0, 0)
     );
     assert_eq!(
-        BitVecSimd::<u64x4, u64, 4>::bit_to_len(u64x4::BIT_WIDTH + 1),
+        T::bit_to_len(u64x4::BIT_WIDTH + 1),
         (1, 0, 1)
     );
     assert_eq!(
-        BitVecSimd::<u64x4, u64, 4>::bit_to_len(u64x4::BIT_WIDTH + 65),
+        T::bit_to_len(u64x4::BIT_WIDTH + 65),
         (1, 1, 1)
     );
 }

@@ -64,6 +64,7 @@ use std::{
 };
 
 use wide::*;
+use smallvec::SmallVec;
 
 // BitContainerElement is the element of a SIMD type BitContainer
 pub trait BitContainerElement {
@@ -192,7 +193,7 @@ impl_BitContainer!(u64x4, u64, 4);
 #[derive(Debug, Clone)]
 pub struct BitVecSimd<T: BitContainer<E, L>, E: BitContainerElement, const L: usize> {
     // internal representation of bitvec
-    storage: Vec<T>,
+    storage: SmallVec<[T; 4]>,
     // actual number of bits exists in storage
     nbits: usize,
 
@@ -310,7 +311,7 @@ where
     /// ```
     pub fn ones(nbits: usize) -> Self {
         let (len, bytes, bits) = Self::bit_to_len(nbits);
-        let mut storage = (0..len).map(|_| T::MAX).collect::<Vec<_>>();
+        let mut storage = (0..len).map(|_| T::MAX).collect::<SmallVec<_>>();
         if bytes > 0 || bits > 0 {
             let mut arr = [T::MAX_ELEMENT; L];
             arr[bytes] = T::MAX_ELEMENT.clear_high_bits((T::ELEMENT_BIT_WIDTH - bits) as u32);
@@ -342,7 +343,7 @@ where
     /// ```
     pub fn from_bool_iterator<I: Iterator<Item = bool>>(i: I) -> Self {
         // FIXME: any better implementation?
-        let mut storage = Vec::new();
+        let mut storage = SmallVec::new();
         let mut current_slice = [T::ZERO_ELEMENT; L];
         let mut nbits = 0;
         for b in i {
@@ -393,7 +394,7 @@ where
     /// ```
     pub fn from_slice_raw(slice: &[E]) -> Self {
         let iter = &mut slice.iter();
-        let mut storage = Vec::with_capacity((slice.len() + T::LANES - 1) / T::LANES);
+        let mut storage = SmallVec::with_capacity((slice.len() + T::LANES - 1) / T::LANES);
 
         let a: u64 = 0;
         a.count_ones();
@@ -689,19 +690,16 @@ where
     /// after inverse it will contains `0, 2..=4, 6..=999`
     pub fn inverse(&self) -> Self {
         let (i, bytes, bits) = Self::bit_to_len(self.nbits);
-        let mut storage = self.storage.iter().map(|x| !(*x)).collect::<Vec<_>>();
+        let mut storage = self.storage.iter().map(|x| !(*x)).collect::<SmallVec<_>>();
         if bytes > 0 || bits > 0 {
             assert_eq!(storage.len(), i + 1);
-            if let Some(s) = storage.get_mut(i) {
-                let mut arr = s.to_array();
-                arr[bytes] = arr[bytes].clear_high_bits((T::ELEMENT_BIT_WIDTH - bits) as u32);
-                for index in (bytes + 1)..T::LANES {
-                    arr[index] = T::ZERO_ELEMENT;
-                }
-                *s = arr.into();
-            } else {
-                panic!("incorrect internal representation of self")
+            let s: &mut T = &mut storage[i];
+            let mut arr = s.to_array();
+            arr[bytes] = arr[bytes].clear_high_bits((T::ELEMENT_BIT_WIDTH - bits) as u32);
+            for index in (bytes + 1)..T::LANES {
+                arr[index] = T::ZERO_ELEMENT;
             }
+            *s = arr.into();
         }
 
         Self {

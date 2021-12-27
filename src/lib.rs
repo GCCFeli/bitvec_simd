@@ -958,24 +958,10 @@ impl_trait! {
     (BitVecSimd<T, E, L>),
     {
         fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            let (i, bytes, bits) = Self::bit_to_len(self.nbits);
-    
-            // FIXME: correct the write format
-            for index in 0..i {
-                let s = self.storage[index];
-                for u in 0..T::LANES {
-                    write!(f, "{:064b} ", s.to_array()[u])?;
-                }
+            for i in 0..self.nbits {
+                write!(f, "{}", if self.get_unchecked(i) { 1 } else { 0 })?;
             }
-            if bytes > 0 || bits > 0 {
-                let s = self.storage[i];
-                for u in 0..bytes {
-                    write!(f, "{:064b} ", s.to_array()[u])?;
-                }
-                write!(f, "{:064b}", s.to_array()[bytes])
-            } else {
-                Ok(())
-            }
+            Ok(())
         }
     }
 }
@@ -1379,4 +1365,10 @@ fn test_bitvec_set_all() {
             assert_eq!(bitvec.get(i), None);
         }
     }
+}
+
+#[test]
+fn test_bitvec_display() {
+    let bitvec = BitVec::ones(5);
+    assert_eq!(format!("{}", bitvec), "11111");
 }

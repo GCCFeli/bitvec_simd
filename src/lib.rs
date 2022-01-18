@@ -402,27 +402,36 @@ where
     /// ```rust
     /// use bitvec_simd::BitVec;
     ///
-    /// let bitvec = BitVec::from_slice_raw(&[3]);
+    /// let bitvec = BitVec::from_slice_raw(&[3], 3);
     /// assert_eq!(bitvec.get(0), Some(true));
     /// assert_eq!(bitvec.get(1), Some(true));
+    /// assert_eq!(bitvec.get(2), Some(false));
+    /// assert_eq!(bitvec.get(3), None);
     /// ```
-    pub fn from_slice_raw(slice: &[<<A as Array>::Item as BitContainer<L>>::Element]) -> Self {
+    pub fn from_slice_raw(slice: &[<<A as Array>::Item as BitContainer<L>>::Element], nbits: usize) -> Self {
+        let len = (nbits + <A as Array>::Item::ELEMENT_BIT_WIDTH - 1) / <A as Array>::Item::ELEMENT_BIT_WIDTH;
+        assert!(len <= slice.len());
+
         let iter = &mut slice.iter();
-        let mut storage = SmallVec::with_capacity((slice.len() + <A as Array>::Item::LANES - 1) / <A as Array>::Item::LANES);
+        let mut storage = SmallVec::with_capacity((len + <A as Array>::Item::LANES - 1) / <A as Array>::Item::LANES);
+        let (i, bytes, bits) = Self::bit_to_len(nbits);
 
         while let Some(a0) = iter.next() {
             let mut arr = <<A as Array>::Item as BitContainer<L>>::ZERO.to_array();
             arr[0] = *a0;
-            for i in 1..<A as Array>::Item::LANES {
-                arr[i] = *(iter.next().unwrap_or(&<<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT));
+            for j in 1..<A as Array>::Item::LANES {
+                arr[j] = *(iter.next().unwrap_or(&<<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT));
             }
 
+            if storage.len() == i && (bytes > 0 || bits > 0) {
+                Self::clear_arr_high_bits(&mut arr, bytes, bits);
+            }
             storage.push(<A as Array>::Item::from(arr));
         }
 
         Self {
             storage,
-            nbits: slice.len() * <A as Array>::Item::ELEMENT_BIT_WIDTH as usize,
+            nbits,
         }
     }
 
@@ -1349,10 +1358,16 @@ fn test_bitvec_creation() {
         }
     }
 
-    let bitvec = BitVec::from_slice_raw(&[3]);
+    let bitvec = BitVec::from_slice_raw(&[7], 2);
     assert_eq!(bitvec.get(0), Some(true));
     assert_eq!(bitvec.get(1), Some(true));
-    assert_eq!(bitvec.get(2), Some(false));
+    assert_eq!(bitvec.get(2), None);
+
+    let bitvec = BitVec::from_slice_raw(&[7], 64);
+    assert_eq!(bitvec.get(0), Some(true));
+    assert_eq!(bitvec.get(1), Some(true));
+    assert_eq!(bitvec.get(2), Some(true));
+    assert_eq!(bitvec.get(3), Some(false));
     assert_eq!(bitvec.get(63), Some(false));
     assert_eq!(bitvec.get(64), None);
 }

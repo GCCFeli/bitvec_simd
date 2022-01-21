@@ -193,6 +193,7 @@ impl_BitContainer!(u64x4, u64, 4);
 /// see the module's document for examples and details.
 ///
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct BitVecSimd<A, const L: usize>
 where
     A: Array + Index<usize>,
@@ -395,20 +396,21 @@ where
         bv
     }
 
-    /// Initialize from a raw E slice.
+    /// Initialize from a E slice.
+    /// Data will be copied from the slice.
     ///
     /// Example:
     ///
     /// ```rust
     /// use bitvec_simd::BitVec;
     ///
-    /// let bitvec = BitVec::from_slice_raw(&[3], 3);
+    /// let bitvec = BitVec::from_slice_copy(&[3], 3);
     /// assert_eq!(bitvec.get(0), Some(true));
     /// assert_eq!(bitvec.get(1), Some(true));
     /// assert_eq!(bitvec.get(2), Some(false));
     /// assert_eq!(bitvec.get(3), None);
     /// ```
-    pub fn from_slice_raw(slice: &[<<A as Array>::Item as BitContainer<L>>::Element], nbits: usize) -> Self {
+    pub fn from_slice_copy(slice: &[<<A as Array>::Item as BitContainer<L>>::Element], nbits: usize) -> Self {
         let len = (nbits + <A as Array>::Item::ELEMENT_BIT_WIDTH - 1) / <A as Array>::Item::ELEMENT_BIT_WIDTH;
         assert!(len <= slice.len());
 
@@ -434,6 +436,53 @@ where
             nbits,
         }
     }
+
+    /// Initialize from a raw buffer.
+    /// Data will be copied from the buffer which [ptr] points to.
+    /// The buffer can be released after initialization.
+    ///
+    /// # Safety
+    ///
+    /// If any of the following conditions are violated, the result is Undefined
+    /// Behavior:
+    ///
+    /// * ptr should be valid and point to an [allocated object] with length >= buffer_len
+    ///
+    /// * ptr.offset(buffer_len - 1), **in bytes**, cannot overflow an `isize`.
+    ///
+    /// * The offset being in bounds cannot rely on "wrapping around" the address
+    ///   space. That is, the infinite-precision sum, **in bytes** must fit in a usize.
+    ///
+    pub unsafe fn from_raw_copy(ptr: *const <<A as Array>::Item as BitContainer<L>>::Element, buffer_len: usize, nbits: usize) -> Self {
+        let len = (nbits + <A as Array>::Item::ELEMENT_BIT_WIDTH - 1) / <A as Array>::Item::ELEMENT_BIT_WIDTH;
+        assert!(len <= buffer_len);
+
+        let mut storage = SmallVec::with_capacity((len + <A as Array>::Item::LANES - 1) / <A as Array>::Item::LANES);
+        let (i, bytes, bits) = Self::bit_to_len(nbits);
+
+        for index in 0..(len as isize) {
+            let mut arr = <<A as Array>::Item as BitContainer<L>>::ZERO.to_array();
+            for j in 0..<A as Array>::Item::LANES {
+                let k = index * <A as Array>::Item::LANES as isize + j as isize;
+                arr[j] = if k < len as isize {
+                    // The only unsafe operation happens here
+                    *(ptr.offset(k))
+                } else {
+                    <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT
+                };
+            }
+            if storage.len() == i && (bytes > 0 || bits > 0) {
+                Self::clear_arr_high_bits(&mut arr, bytes, bits);
+            }
+            storage.push(<A as Array>::Item::from(arr));
+        }
+
+        Self {
+            storage,
+            nbits,
+        }
+    }
+
 
     /// Length of this bitvec.
     ///
@@ -1358,12 +1407,31 @@ fn test_bitvec_creation() {
         }
     }
 
-    let bitvec = BitVec::from_slice_raw(&[7], 2);
+    let bitvec = BitVec::from_slice_copy(&[7], 2);
     assert_eq!(bitvec.get(0), Some(true));
     assert_eq!(bitvec.get(1), Some(true));
     assert_eq!(bitvec.get(2), None);
 
-    let bitvec = BitVec::from_slice_raw(&[7], 64);
+    let bitvec = BitVec::from_slice_copy(&[7], 64);
+    assert_eq!(bitvec.get(0), Some(true));
+    assert_eq!(bitvec.get(1), Some(true));
+    assert_eq!(bitvec.get(2), Some(true));
+    assert_eq!(bitvec.get(3), Some(false));
+    assert_eq!(bitvec.get(63), Some(false));
+    assert_eq!(bitvec.get(64), None);
+
+    let v = vec![7];
+    let buf = v.as_ptr();
+    let bitvec = unsafe { BitVec::from_raw_copy(buf, 1, 2) };
+    assert_eq!(v.len(), 1); // ensure v lives long enough
+    assert_eq!(bitvec.get(0), Some(true));
+    assert_eq!(bitvec.get(1), Some(true));
+    assert_eq!(bitvec.get(2), None);
+
+    let v = vec![7];
+    let buf = v.as_ptr();
+    let bitvec = unsafe { BitVec::from_raw_copy(buf, 1, 64) };
+    assert_eq!(v.len(), 1); // ensure v lives long enough
     assert_eq!(bitvec.get(0), Some(true));
     assert_eq!(bitvec.get(1), Some(true));
     assert_eq!(bitvec.get(2), Some(true));

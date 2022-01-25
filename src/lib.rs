@@ -483,7 +483,6 @@ where
         }
     }
 
-
     /// Length of this bitvec.
     ///
     /// To get the number of elements, use `count_ones`
@@ -622,14 +621,37 @@ where
     pub fn set(&mut self, index: usize, flag: bool) {
         let (i, bytes, bits) = Self::bit_to_len(index);
         if self.nbits <= index {
-            let i = if bytes > 0 || bits > 0 { i + 1 } else { i };
+            let new_len = if bytes > 0 || bits > 0 { i + 1 } else { i };
             self.storage
-                .extend((0..i - self.storage.len()).map(move |_| <<A as Array>::Item as BitContainer<L>>::ZERO));
+                .extend((0..new_len - self.storage.len()).map(move |_| <<A as Array>::Item as BitContainer<L>>::ZERO));
             self.nbits = index + 1;
         }
         let mut arr = self.storage[i].to_array();
         arr[bytes] = Self::set_bit(flag, arr[bytes], bits as u32);
         self.storage[i] = <A as Array>::Item::from(arr);
+    }
+
+    /// Copy content which ptr points to bitvec storage
+    /// Highly unsafe
+    pub unsafe fn set_raw_copy(&mut self, ptr: *mut A::Item, buffer_len: usize, nbits: usize) {
+        let new_len = (nbits + <A as Array>::Item::BIT_WIDTH - 1) / <A as Array>::Item::BIT_WIDTH;
+        assert!(new_len <= buffer_len);
+
+        if new_len > self.len() {
+            self.storage.extend((0..new_len - self.storage.len()).map(move |_| A::Item::ZERO));
+        }
+
+        for i in 0..(new_len as isize) {
+            self.storage[i as usize] = *ptr.offset(i);
+        }
+        self.nbits = nbits;
+    }
+    
+    /// Directly set storage to ptr
+    /// Highly unsafe
+    pub unsafe fn set_raw(&mut self, ptr: *mut A::Item, buffer_len: usize, capacity: usize, nbits: usize) {
+        self.storage = SmallVec::from_raw_parts(ptr, buffer_len, capacity);
+        self.nbits = nbits;
     }
 
     /// Set all items in bitvec to false
@@ -1438,6 +1460,43 @@ fn test_bitvec_creation() {
     assert_eq!(bitvec.get(3), Some(false));
     assert_eq!(bitvec.get(63), Some(false));
     assert_eq!(bitvec.get(64), None);
+}
+
+#[test]
+fn test_bitvec_set_raw_copy() {
+    let v = vec![7];
+    let buf = v.as_ptr();
+    let mut bitvec = unsafe { BitVec::from_raw_copy(buf, 1, 64) };
+    let ptr = bitvec.storage.as_mut_ptr();
+    let buffer_len = bitvec.storage.len();
+    let mut bitvec2 = BitVec::zeros(1);
+    unsafe { bitvec2.set_raw_copy(ptr, buffer_len, bitvec.nbits); }
+    assert_eq!(v.len(), 1); // ensure v lives long enough
+    assert_eq!(bitvec2.get(0), Some(true));
+    assert_eq!(bitvec2.get(1), Some(true));
+    assert_eq!(bitvec2.get(2), Some(true));
+    assert_eq!(bitvec2.get(3), Some(false));
+    assert_eq!(bitvec2.get(63), Some(false));
+    assert_eq!(bitvec2.get(64), None);
+}
+
+#[test]
+fn test_bitvec_set_raw() {
+    let mut bitvec = BitVec::ones(1025);
+    let ptr = bitvec.storage.as_mut_ptr();
+    let buffer_len = bitvec.storage.len();
+    let capacity = bitvec.storage.capacity();
+    let nbits = bitvec.nbits;
+    let spilled = bitvec.storage.spilled();
+    let mut bitvec2 = BitVec::zeros(1);
+    unsafe {
+        std::mem::forget(bitvec);
+        assert!(spilled);
+        bitvec2.set_raw(ptr, buffer_len, capacity, nbits);
+        assert_eq!(bitvec2.get(0), Some(true));
+        assert_eq!(bitvec2.get(1024), Some(true));
+        assert_eq!(bitvec2.get(1025), None);
+    }
 }
 
 #[test]

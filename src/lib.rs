@@ -275,17 +275,17 @@ where
     #[inline]
     fn bit_to_len(nbits: usize) -> (usize, usize, usize) {
         (
-            nbits / (<A as Array>::Item::BIT_WIDTH as usize),
-            (nbits % (<A as Array>::Item::BIT_WIDTH as usize)) / <A as Array>::Item::ELEMENT_BIT_WIDTH,
-            nbits % <A as Array>::Item::ELEMENT_BIT_WIDTH,
+            nbits / (A::Item::BIT_WIDTH as usize),
+            (nbits % (A::Item::BIT_WIDTH as usize)) / A::Item::ELEMENT_BIT_WIDTH,
+            nbits % A::Item::ELEMENT_BIT_WIDTH,
         )
     }
 
     #[inline]
-    fn set_bit(flag: bool, bytes: <<A as Array>::Item as BitContainer<L>>::Element, offset: u32) -> <<A as Array>::Item as BitContainer<L>>::Element {
+    fn set_bit(flag: bool, bytes: <A::Item as BitContainer<L>>::Element, offset: u32) -> <A::Item as BitContainer<L>>::Element {
         match flag {
-            true => bytes | <A as Array>::Item::ONE_ELEMENT.wrapping_shl(offset),
-            false => bytes & !<A as Array>::Item::ONE_ELEMENT.wrapping_shl(offset),
+            true => bytes | A::Item::ONE_ELEMENT.wrapping_shl(offset),
+            false => bytes & !A::Item::ONE_ELEMENT.wrapping_shl(offset),
         }
     }
 
@@ -299,8 +299,8 @@ where
     /// assert_eq!(bitvec.len(), 10);
     /// ```
     pub fn zeros(nbits: usize) -> Self {
-        let len = (nbits + <A as Array>::Item::BIT_WIDTH - 1) / <A as Array>::Item::BIT_WIDTH;
-        let storage = (0..len).map(|_| <<A as Array>::Item as BitContainer<L>>::ZERO).collect();
+        let len = (nbits + A::Item::BIT_WIDTH - 1) / A::Item::BIT_WIDTH;
+        let storage = (0..len).map(|_| A::Item::ZERO).collect();
         Self { storage, nbits }
     }
 
@@ -315,14 +315,14 @@ where
     /// ```
     pub fn ones(nbits: usize) -> Self {
         let (len, bytes, bits) = Self::bit_to_len(nbits);
-        let mut storage = (0..len).map(|_| <A as Array>::Item::MAX).collect::<SmallVec<_>>();
+        let mut storage = (0..len).map(|_| A::Item::MAX).collect::<SmallVec<_>>();
         if bytes > 0 || bits > 0 {
-            let mut arr = <<A as Array>::Item as BitContainer<L>>::MAX.to_array();
-            arr[bytes] = <<A as Array>::Item as BitContainer<L>>::MAX_ELEMENT.clear_high_bits((<A as Array>::Item::ELEMENT_BIT_WIDTH - bits) as u32);
-            for i in (bytes + 1)..<A as Array>::Item::LANES {
-                arr[i] = <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT;
+            let mut arr = A::Item::MAX.to_array();
+            arr[bytes] = A::Item::MAX_ELEMENT.clear_high_bits((A::Item::ELEMENT_BIT_WIDTH - bits) as u32);
+            for i in (bytes + 1)..A::Item::LANES {
+                arr[i] = A::Item::ZERO_ELEMENT;
             }
-            storage.push(<A as Array>::Item::from(arr));
+            storage.push(A::Item::from(arr));
         }
         Self { storage, nbits }
     }
@@ -348,21 +348,21 @@ where
     pub fn from_bool_iterator<I: Iterator<Item = bool>>(i: I) -> Self {
         // FIXME: any better implementation?
         let mut storage = SmallVec::new();
-        let mut current_slice = <<A as Array>::Item as BitContainer<L>>::ZERO.to_array();
+        let mut current_slice = A::Item::ZERO.to_array();
         let mut nbits = 0;
         for b in i {
             if b {
-                current_slice[nbits % <A as Array>::Item::BIT_WIDTH / <A as Array>::Item::ELEMENT_BIT_WIDTH] |=
-                    <A as Array>::Item::ONE_ELEMENT.wrapping_shl((nbits % <A as Array>::Item::ELEMENT_BIT_WIDTH) as u32);
+                current_slice[nbits % A::Item::BIT_WIDTH / A::Item::ELEMENT_BIT_WIDTH] |=
+                    A::Item::ONE_ELEMENT.wrapping_shl((nbits % A::Item::ELEMENT_BIT_WIDTH) as u32);
             }
             nbits += 1;
-            if nbits % <A as Array>::Item::BIT_WIDTH == 0 {
-                storage.push(<A as Array>::Item::from(current_slice));
-                current_slice = <<A as Array>::Item as BitContainer<L>>::ZERO.to_array();
+            if nbits % A::Item::BIT_WIDTH == 0 {
+                storage.push(A::Item::from(current_slice));
+                current_slice = A::Item::ZERO.to_array();
             }
         }
-        if nbits % <A as Array>::Item::BIT_WIDTH > 0 {
-            storage.push(<A as Array>::Item::from(current_slice));
+        if nbits % A::Item::BIT_WIDTH > 0 {
+            storage.push(A::Item::from(current_slice));
         }
         Self { storage, nbits }
     }
@@ -399,25 +399,25 @@ where
     /// assert_eq!(bitvec.get(2), Some(false));
     /// assert_eq!(bitvec.get(3), None);
     /// ```
-    pub fn from_slice_copy(slice: &[<<A as Array>::Item as BitContainer<L>>::Element], nbits: usize) -> Self {
-        let len = (nbits + <A as Array>::Item::ELEMENT_BIT_WIDTH - 1) / <A as Array>::Item::ELEMENT_BIT_WIDTH;
+    pub fn from_slice_copy(slice: &[<A::Item as BitContainer<L>>::Element], nbits: usize) -> Self {
+        let len = (nbits + A::Item::ELEMENT_BIT_WIDTH - 1) / A::Item::ELEMENT_BIT_WIDTH;
         assert!(len <= slice.len());
 
         let iter = &mut slice.iter();
-        let mut storage = SmallVec::with_capacity((len + <A as Array>::Item::LANES - 1) / <A as Array>::Item::LANES);
+        let mut storage = SmallVec::with_capacity((len + A::Item::LANES - 1) / A::Item::LANES);
         let (i, bytes, bits) = Self::bit_to_len(nbits);
 
         while let Some(a0) = iter.next() {
-            let mut arr = <<A as Array>::Item as BitContainer<L>>::ZERO.to_array();
+            let mut arr = A::Item::ZERO.to_array();
             arr[0] = *a0;
-            for j in 1..<A as Array>::Item::LANES {
-                arr[j] = *(iter.next().unwrap_or(&<<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT));
+            for j in 1..A::Item::LANES {
+                arr[j] = *(iter.next().unwrap_or(&A::Item::ZERO_ELEMENT));
             }
 
             if storage.len() == i && (bytes > 0 || bits > 0) {
                 Self::clear_arr_high_bits(&mut arr, bytes, bits);
             }
-            storage.push(<A as Array>::Item::from(arr));
+            storage.push(A::Item::from(arr));
         }
 
         Self {
@@ -442,28 +442,28 @@ where
     /// * The offset being in bounds cannot rely on "wrapping around" the address
     ///   space. That is, the infinite-precision sum, **in bytes** must fit in a usize.
     ///
-    pub unsafe fn from_raw_copy(ptr: *const <<A as Array>::Item as BitContainer<L>>::Element, buffer_len: usize, nbits: usize) -> Self {
-        let len = (nbits + <A as Array>::Item::ELEMENT_BIT_WIDTH - 1) / <A as Array>::Item::ELEMENT_BIT_WIDTH;
+    pub unsafe fn from_raw_copy(ptr: *const <A::Item as BitContainer<L>>::Element, buffer_len: usize, nbits: usize) -> Self {
+        let len = (nbits + A::Item::ELEMENT_BIT_WIDTH - 1) / A::Item::ELEMENT_BIT_WIDTH;
         assert!(len <= buffer_len);
 
-        let mut storage = SmallVec::with_capacity((len + <A as Array>::Item::LANES - 1) / <A as Array>::Item::LANES);
+        let mut storage = SmallVec::with_capacity((len + A::Item::LANES - 1) / A::Item::LANES);
         let (i, bytes, bits) = Self::bit_to_len(nbits);
 
         for index in 0..(len as isize) {
-            let mut arr = <<A as Array>::Item as BitContainer<L>>::ZERO.to_array();
-            for j in 0..<A as Array>::Item::LANES {
-                let k = index * <A as Array>::Item::LANES as isize + j as isize;
+            let mut arr = A::Item::ZERO.to_array();
+            for j in 0..A::Item::LANES {
+                let k = index * A::Item::LANES as isize + j as isize;
                 arr[j] = if k < len as isize {
                     // The only unsafe operation happens here
                     *(ptr.offset(k))
                 } else {
-                    <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT
+                    A::Item::ZERO_ELEMENT
                 };
             }
             if storage.len() == i && (bytes > 0 || bits > 0) {
                 Self::clear_arr_high_bits(&mut arr, bytes, bits);
             }
-            storage.push(<A as Array>::Item::from(arr));
+            storage.push(A::Item::from(arr));
         }
 
         Self {
@@ -517,25 +517,25 @@ where
         self.storage.spilled()
     }
 
-    fn clear_arr_high_bits(arr: &mut [<<A as Array>::Item as BitContainer<L>>::Element], bytes: usize, bits: usize) {
+    fn clear_arr_high_bits(arr: &mut [<A::Item as BitContainer<L>>::Element], bytes: usize, bits: usize) {
         let mut end_bytes = bytes;
         if bits > 0 {
-            arr[end_bytes] = arr[end_bytes].clear_high_bits((<A as Array>::Item::ELEMENT_BIT_WIDTH - bits) as u32);
+            arr[end_bytes] = arr[end_bytes].clear_high_bits((A::Item::ELEMENT_BIT_WIDTH - bits) as u32);
             end_bytes += 1;
         }
-        for byte_index in end_bytes..<A as Array>::Item::LANES {
-            arr[byte_index] = <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT;
+        for byte_index in end_bytes..A::Item::LANES {
+            arr[byte_index] = A::Item::ZERO_ELEMENT;
         }
     }
 
-    fn fill_arr_high_bits(arr: &mut [<<A as Array>::Item as BitContainer<L>>::Element], bytes: usize, bits: usize, bytes_max: usize) {
+    fn fill_arr_high_bits(arr: &mut [<A::Item as BitContainer<L>>::Element], bytes: usize, bits: usize, bytes_max: usize) {
         let mut end_bytes = bytes;
         if bits > 0 {
-            arr[end_bytes] |= <A as Array>::Item::MAX_ELEMENT.clear_low_bits(bits as u32);
+            arr[end_bytes] |= A::Item::MAX_ELEMENT.clear_low_bits(bits as u32);
             end_bytes += 1;
         }
         for byte_index in end_bytes..bytes_max {
-            arr[byte_index] = <A as Array>::Item::MAX_ELEMENT;
+            arr[byte_index] = A::Item::MAX_ELEMENT;
         }
     }
 
@@ -543,7 +543,7 @@ where
         if bytes > 0 || bits > 0 {
             let mut arr = self.storage[i].to_array();
             Self::clear_arr_high_bits(&mut arr, bytes, bits);
-            self.storage[i] = <A as Array>::Item::from(arr);
+            self.storage[i] = A::Item::from(arr);
         }
     }
 
@@ -551,7 +551,7 @@ where
         if bytes > 0 || bits > 0 {
             let mut arr = self.storage[i].to_array();
             Self::fill_arr_high_bits(&mut arr, bytes, bits, bytes_max);
-            self.storage[i] = <A as Array>::Item::from(arr);
+            self.storage[i] = A::Item::from(arr);
         }
     }
 
@@ -564,11 +564,11 @@ where
             debug_assert!(old_bytes == bytes && bits >= old_bits);
             if bits > old_bits {
                 // fix the only byte
-                arr[bytes] |= <A as Array>::Item::MAX_ELEMENT.clear_low_bits(old_bits as u32);
+                arr[bytes] |= A::Item::MAX_ELEMENT.clear_low_bits(old_bits as u32);
             }
         }
         Self::clear_arr_high_bits(&mut arr, bytes, bits);
-        self.storage[i] = <A as Array>::Item::from(arr);
+        self.storage[i] = A::Item::from(arr);
     }
 
     /// Resize this bitvec to `nbits` in-place.
@@ -587,13 +587,13 @@ where
     /// ```
     pub fn resize(&mut self, nbits: usize, value: bool) {
         let (i, bytes, bits) = Self::bit_to_len(nbits);
-        self.storage.resize(if bytes > 0 || bits > 0 { i + 1 } else { i }, if value { <A as Array>::Item::MAX } else { <<A as Array>::Item as BitContainer<L>>::ZERO });
+        self.storage.resize(if bytes > 0 || bits > 0 { i + 1 } else { i }, if value { A::Item::MAX } else { A::Item::ZERO });
         if nbits < self.nbits {
             self.clear_high_bits(i, bytes, bits);
         } else if value { // old_i <= i && filling 1
             let (old_i, old_bytes, old_bits) = Self::bit_to_len(self.nbits);
             if old_i < i {
-                self.fill_high_bits(old_i, old_bytes, old_bits, <A as Array>::Item::LANES);
+                self.fill_high_bits(old_i, old_bytes, old_bits, A::Item::LANES);
                 self.clear_high_bits(i, bytes, bits);
             } else if bytes > 0 || bits > 0 {
                 self.fix_high_bits(old_i, old_bytes, old_bits, i, bytes, bits);
@@ -641,18 +641,18 @@ where
         if self.nbits <= index {
             let new_len = if bytes > 0 || bits > 0 { i + 1 } else { i };
             self.storage
-                .extend((0..new_len - self.storage.len()).map(move |_| <<A as Array>::Item as BitContainer<L>>::ZERO));
+                .extend((0..new_len - self.storage.len()).map(move |_| A::Item::ZERO));
             self.nbits = index + 1;
         }
         let mut arr = self.storage[i].to_array();
         arr[bytes] = Self::set_bit(flag, arr[bytes], bits as u32);
-        self.storage[i] = <A as Array>::Item::from(arr);
+        self.storage[i] = A::Item::from(arr);
     }
 
     /// Copy content which ptr points to bitvec storage
     /// Highly unsafe
     pub unsafe fn set_raw_copy(&mut self, ptr: *mut A::Item, buffer_len: usize, nbits: usize) {
-        let new_len = (nbits + <A as Array>::Item::BIT_WIDTH - 1) / <A as Array>::Item::BIT_WIDTH;
+        let new_len = (nbits + A::Item::BIT_WIDTH - 1) / A::Item::BIT_WIDTH;
         assert!(new_len <= buffer_len);
 
         if new_len > self.len() {
@@ -674,21 +674,21 @@ where
 
     /// Set all items in bitvec to false
     pub fn set_all_false(&mut self) {
-        self.storage.iter_mut().for_each(move |x| *x = <<A as Array>::Item as BitContainer<L>>::ZERO);
+        self.storage.iter_mut().for_each(move |x| *x = A::Item::ZERO);
     }
 
     /// Set all items in bitvec to true
     pub fn set_all_true(&mut self) {
         let (_, bytes, bits) = Self::bit_to_len(self.nbits);
-        self.storage.iter_mut().for_each(move |x| *x = <A as Array>::Item::MAX);
+        self.storage.iter_mut().for_each(move |x| *x = A::Item::MAX);
         if bytes > 0 || bits > 0 {
-            let mut arr = <<A as Array>::Item as BitContainer<L>>::MAX.to_array();
-            arr[bytes] = <A as Array>::Item::MAX_ELEMENT.clear_high_bits((<A as Array>::Item::ELEMENT_BIT_WIDTH - bits) as u32);
-            for i in (bytes + 1)..<A as Array>::Item::LANES {
-                arr[i] = <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT;
+            let mut arr = A::Item::MAX.to_array();
+            arr[bytes] = A::Item::MAX_ELEMENT.clear_high_bits((A::Item::ELEMENT_BIT_WIDTH - bits) as u32);
+            for i in (bytes + 1)..A::Item::LANES {
+                arr[i] = A::Item::ZERO_ELEMENT;
             }
             // unwrap here is safe since bytes > 0 || bits > 0 => self.nbits > 0
-            *(self.storage.last_mut().unwrap()) = <A as Array>::Item::from(arr);
+            *(self.storage.last_mut().unwrap()) = A::Item::from(arr);
         }
     }
 
@@ -722,7 +722,7 @@ where
             None
         } else {
             let (index, bytes, bits) = Self::bit_to_len(index);
-            Some(self.storage[index].to_array()[bytes] & <<A as Array>::Item as BitContainer<L>>::ONE_ELEMENT.wrapping_shl(bits as u32) != <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT)
+            Some(self.storage[index].to_array()[bytes] & A::Item::ONE_ELEMENT.wrapping_shl(bits as u32) != A::Item::ZERO_ELEMENT)
         }
     }
 
@@ -748,7 +748,7 @@ where
             panic!("index out of bounds {} > {}", index, self.nbits);
         } else {
             let (index, bytes, bits) = Self::bit_to_len(index);
-            (self.storage[index].to_array()[bytes] & <<A as Array>::Item as BitContainer<L>>::ONE_ELEMENT.wrapping_shl(bits as u32)) != <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT
+            (self.storage[index].to_array()[bytes] & A::Item::ONE_ELEMENT.wrapping_shl(bits as u32)) != A::Item::ZERO_ELEMENT
         }
     }
 
@@ -801,11 +801,11 @@ where
         let mut storage = self.storage.iter().map(|x| !(*x)).collect::<SmallVec<_>>();
         if bytes > 0 || bits > 0 {
             assert_eq!(storage.len(), i + 1);
-            let s: &mut <A as Array>::Item = &mut storage[i];
+            let s: &mut A::Item = &mut storage[i];
             let mut arr = s.to_array();
-            arr[bytes] = arr[bytes].clear_high_bits((<A as Array>::Item::ELEMENT_BIT_WIDTH - bits) as u32);
-            for index in (bytes + 1)..<A as Array>::Item::LANES {
-                arr[index] = <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT;
+            arr[bytes] = arr[bytes].clear_high_bits((A::Item::ELEMENT_BIT_WIDTH - bits) as u32);
+            for index in (bytes + 1)..A::Item::LANES {
+                arr[index] = A::Item::ZERO_ELEMENT;
             }
             *s = arr.into();
         }
@@ -868,7 +868,7 @@ where
             ones += arr.into_iter().take(bytes).map(|x| x.count_ones()).sum::<u32>();
             if bits > 0 {
                 let x = arr.into_iter().skip(bytes).next().unwrap();
-                ones += (x & (<A as Array>::Item::ONE_ELEMENT.wrapping_shl((bits + 1) as u32) - <A as Array>::Item::ONE_ELEMENT)).count_ones();
+                ones += (x & (A::Item::ONE_ELEMENT.wrapping_shl((bits + 1) as u32) - A::Item::ONE_ELEMENT)).count_ones();
             }
         }
         ones as usize
@@ -888,8 +888,8 @@ where
     pub fn leading_zeros(&self) -> usize {
         let mut zero_item_count = 0;
         let mut iter = self.storage.iter().rev().skip_while(|x| {
-            match **x == <<A as Array>::Item as BitContainer<L>>::ZERO {
-                true => { zero_item_count += <A as Array>::Item::LANES; true },
+            match **x == A::Item::ZERO {
+                true => { zero_item_count += A::Item::LANES; true },
                 false => false,
             }
         });
@@ -897,7 +897,7 @@ where
         if let Some(x) = iter.next() {
             let arr = x.to_array();
             let mut x_iter = arr.into_iter().rev().skip_while(|y| {
-                match *y == <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT {
+                match *y == A::Item::ZERO_ELEMENT {
                     true => { zero_item_count += 1; true },
                     false => false,
                 }
@@ -905,9 +905,9 @@ where
 
             // Safe unwrap here, since there should be at least one non-zero item in arr.
             let y = x_iter.next().unwrap();
-            let raw_leading_zeros = zero_item_count * <A as Array>::Item::ELEMENT_BIT_WIDTH + y.leading_zeros() as usize;
-            let mut extra_leading_zeros = self.nbits % <A as Array>::Item::BIT_WIDTH;
-            if extra_leading_zeros > 0 { extra_leading_zeros = <A as Array>::Item::BIT_WIDTH - extra_leading_zeros }
+            let raw_leading_zeros = zero_item_count * A::Item::ELEMENT_BIT_WIDTH + y.leading_zeros() as usize;
+            let mut extra_leading_zeros = self.nbits % A::Item::BIT_WIDTH;
+            if extra_leading_zeros > 0 { extra_leading_zeros = A::Item::BIT_WIDTH - extra_leading_zeros }
             return raw_leading_zeros as usize - extra_leading_zeros;
         }
 
@@ -1002,8 +1002,8 @@ impl_trait! {
             .into_iter()
             .flat_map(|x| x.to_array())
                 .flat_map(|x| {
-                    (0..<A as Array>::Item::ELEMENT_BIT_WIDTH)
-                        .map(move |i| (x.wrapping_shr(i as u32)) & <<A as Array>::Item as BitContainer<L>>::ONE_ELEMENT != <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT)
+                    (0..A::Item::ELEMENT_BIT_WIDTH)
+                        .map(move |i| (x.wrapping_shr(i as u32)) & A::Item::ONE_ELEMENT != A::Item::ZERO_ELEMENT)
                 })
             .take(v.nbits)
             .collect()
@@ -1019,7 +1019,7 @@ impl_trait! {
         v.storage
             .into_iter()
             .flat_map(|x| x.to_array())
-            .flat_map(|x| { (0..<A as Array>::Item::ELEMENT_BIT_WIDTH).map(move |i| (x.wrapping_shr(i as u32)) & <<A as Array>::Item as BitContainer<L>>::ONE_ELEMENT != <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT) })
+            .flat_map(|x| { (0..A::Item::ELEMENT_BIT_WIDTH).map(move |i| (x.wrapping_shr(i as u32)) & A::Item::ONE_ELEMENT != A::Item::ZERO_ELEMENT) })
             .take(v.nbits)
             .enumerate()
             .filter(|(_, b)| *b)

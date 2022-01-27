@@ -14,7 +14,7 @@ keywords = ["bitvector"]
 
 [dependencies]
 wide = "0.7"
-smallvec = "1.7"
+smallvec = { version = "1.8", features = [ "const_generics" ] }
 
 [dev-dependencies]
 criterion = "0.3"

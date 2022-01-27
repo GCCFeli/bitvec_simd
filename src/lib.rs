@@ -66,7 +66,13 @@ use wide::*;
 use smallvec::{SmallVec, Array};
 
 // BitContainerElement is the element of a SIMD type BitContainer
-pub trait BitContainerElement {
+pub trait BitContainerElement:
+    Not<Output = Self> + BitAnd<Output = Self> + BitOr<Output = Self> + BitXor<Output = Self> + Shl<u32, Output = Self> + Shr<u32, Output = Self>
+    + BitAndAssign + BitOrAssign
+    + Add<Output = Self> + Sub<Output = Self>
+    + PartialEq
+    + Sized + Copy + Clone + Binary
+{
     const BIT_WIDTH: usize;
     const ZERO: Self;
     const ONE: Self;
@@ -128,7 +134,12 @@ impl_BitContainerElement!(u64, 0u64, 1u64, 0xFFFFFFFFFFFFFFFFu64);
 
 // BitContainer is the basic building block for internal storage
 // BitVec is expected to be aligned properly
-pub trait BitContainer<const L: usize>
+pub trait BitContainer<const L: usize> :
+    Not<Output = Self> + BitAnd<Output = Self> + BitOr<Output = Self> + BitXor<Output = Self>
+    + Add<Output = Self> + Sub<Output = Self>
+    + Eq
+    + Sized + Copy + Clone + std::fmt::Debug
+    + From<Self::Element> + From<[Self::Element; L]>
 {
     type Element: BitContainerElement;
     const BIT_WIDTH: usize;
@@ -197,17 +208,7 @@ impl_BitContainer!(u64x4, u64, 4);
 pub struct BitVecSimd<A, const L: usize>
 where
     A: Array + Index<usize>,
-    <A as Array>::Item: Not<Output = <A as Array>::Item> + BitAnd<Output = <A as Array>::Item> + BitOr<Output = <A as Array>::Item> + BitXor<Output = <A as Array>::Item> + Shl<u32> + Shr<u32>
-        + Add<Output = <A as Array>::Item> + Sub<Output = <A as Array>::Item>
-        + Eq
-        + Sized + Copy + Clone + std::fmt::Debug
-        + From<<<A as Array>::Item as BitContainer<L>>::Element> + From<[<<A as Array>::Item as BitContainer<L>>::Element; L]> + BitContainer<L>,
-    <<A as Array>::Item as BitContainer<L>>::Element: Not<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitAnd<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitOr<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitOrAssign + BitXor<Output = <<A as Array>::Item as BitContainer<L>>::Element> + Shl<u32, Output = <<A as Array>::Item as BitContainer<L>>::Element> + Shr<u32, Output = <<A as Array>::Item as BitContainer<L>>::Element>
-        + BitAndAssign + BitOrAssign
-        + Add<Output = <<A as Array>::Item as BitContainer<L>>::Element> + Sub<Output = <<A as Array>::Item as BitContainer<L>>::Element>
-        + PartialEq
-        + Sized + Copy + Clone + Binary
-        + BitContainerElement,
+    A::Item: BitContainer<L>,
 {
     // internal representation of bitvec
     storage: SmallVec<A>,
@@ -257,17 +258,7 @@ macro_rules! impl_operation {
 impl<A, const L: usize> BitVecSimd<A, L>
 where
     A: Array + Index<usize>,
-    <A as Array>::Item: Not<Output = <A as Array>::Item> + BitAnd<Output = <A as Array>::Item> + BitOr<Output = <A as Array>::Item> + BitXor<Output = <A as Array>::Item> + Shl<u32> + Shr<u32>
-        + Add<Output = <A as Array>::Item> + Sub<Output = <A as Array>::Item>
-        + Eq
-        + Sized + Copy + Clone + std::fmt::Debug
-        + From<<<A as Array>::Item as BitContainer<L>>::Element> + From<[<<A as Array>::Item as BitContainer<L>>::Element; L]> + BitContainer<L>,
-    <<A as Array>::Item as BitContainer<L>>::Element: Not<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitAnd<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitOr<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitOrAssign + BitXor<Output = <<A as Array>::Item as BitContainer<L>>::Element> + Shl<u32, Output = <<A as Array>::Item as BitContainer<L>>::Element> + Shr<u32, Output = <<A as Array>::Item as BitContainer<L>>::Element>
-        + BitAndAssign + BitOrAssign
-        + Add<Output = <<A as Array>::Item as BitContainer<L>>::Element> + Sub<Output = <<A as Array>::Item as BitContainer<L>>::Element>
-        + PartialEq
-        + Sized + Copy + Clone + Binary
-        + BitContainerElement,
+    A::Item: BitContainer<L>,
 {
     // convert total bit to length
     // input: Number of bits
@@ -977,17 +968,7 @@ where
 impl<A, I: Iterator<Item = bool>, const L: usize> From<I> for BitVecSimd<A, L>
 where
     A: Array + Index<usize>,
-    <A as Array>::Item: Not<Output = <A as Array>::Item> + BitAnd<Output = <A as Array>::Item> + BitOr<Output = <A as Array>::Item> + BitXor<Output = <A as Array>::Item> + Shl<u32> + Shr<u32>
-        + Add<Output = <A as Array>::Item> + Sub<Output = <A as Array>::Item>
-        + Eq
-        + Sized + Copy + Clone + std::fmt::Debug
-        + From<<<A as Array>::Item as BitContainer<L>>::Element> + From<[<<A as Array>::Item as BitContainer<L>>::Element; L]> + BitContainer<L>,
-    <<A as Array>::Item as BitContainer<L>>::Element: Not<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitAnd<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitOr<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitOrAssign + BitXor<Output = <<A as Array>::Item as BitContainer<L>>::Element> + Shl<u32, Output = <<A as Array>::Item as BitContainer<L>>::Element> + Shr<u32, Output = <<A as Array>::Item as BitContainer<L>>::Element>
-        + BitAndAssign + BitOrAssign
-        + Add<Output = <<A as Array>::Item as BitContainer<L>>::Element> + Sub<Output = <<A as Array>::Item as BitContainer<L>>::Element>
-        + PartialEq
-        + Sized + Copy + Clone + Binary
-        + BitContainerElement,
+    A::Item: BitContainer<L>,
 {
     fn from(i: I) -> Self {
         Self::from_bool_iterator(i)
@@ -1003,18 +984,8 @@ macro_rules! impl_trait {
     {
         impl<A, const L: usize> $( $name )+ for $( $name1 )+
         where
-        A: Array + Index<usize>,
-        <A as Array>::Item: Not<Output = <A as Array>::Item> + BitAnd<Output = <A as Array>::Item> + BitOr<Output = <A as Array>::Item> + BitXor<Output = <A as Array>::Item> + Shl<u32> + Shr<u32>
-            + Add<Output = <A as Array>::Item> + Sub<Output = <A as Array>::Item>
-            + Eq
-            + Sized + Copy + Clone + std::fmt::Debug
-            + From<<<A as Array>::Item as BitContainer<L>>::Element> + From<[<<A as Array>::Item as BitContainer<L>>::Element; L]> + BitContainer<L>,
-        <<A as Array>::Item as BitContainer<L>>::Element: Not<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitAnd<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitOr<Output = <<A as Array>::Item as BitContainer<L>>::Element> + BitOrAssign + BitXor<Output = <<A as Array>::Item as BitContainer<L>>::Element> + Shl<u32, Output = <<A as Array>::Item as BitContainer<L>>::Element> + Shr<u32, Output = <<A as Array>::Item as BitContainer<L>>::Element>
-            + BitAndAssign + BitOrAssign
-            + Add<Output = <<A as Array>::Item as BitContainer<L>>::Element> + Sub<Output = <<A as Array>::Item as BitContainer<L>>::Element>
-            + PartialEq
-            + Sized + Copy + Clone + Binary
-            + BitContainerElement,
+            A: Array + Index<usize>,
+            A::Item: BitContainer<L>,
         { $( $body )* }
     };
 }

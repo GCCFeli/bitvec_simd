@@ -852,6 +852,9 @@ where
     /// ```
     pub fn count_ones_before(&self, index: usize) -> usize {
         assert!(index <= self.nbits);
+        if index <= 0 {
+            return 0;
+        }
         let (i, bytes, bits) = Self::bit_to_len(index - 1);
         let mut ones = self
             .storage

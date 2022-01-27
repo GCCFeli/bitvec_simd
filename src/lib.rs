@@ -331,8 +331,6 @@ where
             for i in (bytes + 1)..<A as Array>::Item::LANES {
                 arr[i] = <<A as Array>::Item as BitContainer<L>>::ZERO_ELEMENT;
             }
-            //let x = <<A as Array>::Item as BitContainer>::ElementArray
-
             storage.push(<A as Array>::Item::from(arr));
         }
         Self { storage, nbits }
@@ -495,8 +493,37 @@ where
     /// let bitvec = BitVec::ones(3);
     /// assert_eq!(bitvec.len(), 3);
     /// ```
+    #[inline]
     pub fn len(&self) -> usize {
         self.nbits
+    }
+
+    /// Length of underlining storage.
+    #[inline]
+    pub fn storage_len(&self) -> usize {
+        self.storage.len()
+    }
+
+    /// Capacity of underlining storage.
+    #[inline]
+    pub fn storage_capacity(&self) -> usize {
+        self.storage.capacity()
+    }
+
+    /// Returns a raw pointer to the vector's buffer.
+    pub fn as_ptr(&self) -> *const A::Item {
+        self.storage.as_ptr()
+    }
+
+    /// Returns a raw mutable pointer to the vector's buffer.
+    pub fn as_mut_ptr(&mut self) -> *mut A::Item {
+        self.storage.as_mut_ptr()
+    }
+
+    /// Returns `true` if the data has spilled into a separate heap-allocated buffer.
+    #[inline]
+    pub fn spilled(&self) -> bool {
+        self.storage.spilled()
     }
 
     fn clear_arr_high_bits(arr: &mut [<<A as Array>::Item as BitContainer<L>>::Element], bytes: usize, bits: usize) {

@@ -203,6 +203,7 @@ impl_BitContainer!(u64x4, u64, 4);
 ///
 /// see the module's document for examples and details.
 ///
+#[cfg_attr(feature = "use-serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct BitVecSimd<A, const L: usize>

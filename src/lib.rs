@@ -65,6 +65,15 @@ use std::{
 use wide::*;
 use smallvec::{SmallVec, Array};
 
+//#[cfg(feature = "serde")]
+use serde::{
+    Serialize, Deserialize,
+    de::{Deserializer, SeqAccess, Visitor, self, MapAccess},
+    ser::{Serializer, SerializeStruct},
+};
+//#[cfg(feature = "serde")]
+use std::{fmt, marker::PhantomData};
+
 // BitContainerElement is the element of a SIMD type BitContainer
 pub trait BitContainerElement:
     Not<Output = Self> + BitAnd<Output = Self> + BitOr<Output = Self> + BitXor<Output = Self> + Shl<u32, Output = Self> + Shr<u32, Output = Self>
@@ -199,11 +208,16 @@ impl_BitContainer!(u32x8, u32, 8);
 impl_BitContainer!(u64x2, u64, 2);
 impl_BitContainer!(u64x4, u64, 4);
 
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "u64x4")]
+struct u64x4Def {
+    arr: [u64; 4]
+}
+
 /// Representation of a BitVec
 ///
 /// see the module's document for examples and details.
 ///
-#[cfg_attr(feature = "use-serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct BitVecSimd<A, const L: usize>
@@ -216,6 +230,125 @@ where
     // actual number of bits exists in storage
     nbits: usize,
 }
+
+// #[cfg(feature = "serde")]
+// #[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
+impl<A, const L: usize> Serialize for BitVecSimd<A, L>
+where
+    A: Array + Index<usize>,
+    A::Item: BitContainer<L> + Serialize,
+{
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut bitvec = serializer.serialize_struct("BitVecSimd", 2)?;
+        bitvec.serialize_field("storage", &self.storage)?;
+        bitvec.serialize_field("nbits", &self.nbits)?;
+        bitvec.end()
+    }
+}
+
+// #[cfg(feature = "serde")]
+// #[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
+impl<'de, A, const L: usize> Deserialize<'de> for BitVecSimd<A, L>
+where
+    A: Array + Index<usize>,
+    A::Item: BitContainer<L> + Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        enum Field { Storage, Nbits }
+
+        impl<'de> Deserialize<'de> for Field {
+            fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                struct FieldVisitor;
+
+                impl<'de> Visitor<'de> for FieldVisitor {
+                    type Value = Field;
+
+                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        formatter.write_str("`storage` or `nbits`")
+                    }
+
+                    fn visit_str<E>(self, value: &str) -> Result<Field, E>
+                    where
+                        E: de::Error,
+                    {
+                        match value {
+                            "storage" => Ok(Field::Storage),
+                            "nbits" => Ok(Field::Nbits),
+                            _ => Err(de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+
+                deserializer.deserialize_identifier(FieldVisitor)
+            }
+        }
+
+        struct BitVecSimdVisitor<A, const L: usize> {
+            phantom: PhantomData<A>,
+        }
+
+        impl<'de, A, const L: usize> Visitor<'de> for BitVecSimdVisitor<A, L>
+        where
+            A: Array + Index<usize>,
+            A::Item: BitContainer<L> + Deserialize<'de>,
+        {
+            type Value = BitVecSimd<A, L>;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct BitVecSimd")
+            }
+
+            fn visit_seq<V>(self, mut seq: V) -> Result<BitVecSimd<A, L>, V::Error>
+            where
+                V: SeqAccess<'de>,
+            {
+                let storage = seq.next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let nbits = seq.next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                Ok(BitVecSimd { storage, nbits })
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<BitVecSimd<A, L>, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut storage = None;
+                let mut nbits = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Storage => {
+                            if storage.is_some() {
+                                return Err(de::Error::duplicate_field("storage"));
+                            }
+                            storage = Some(map.next_value()?);
+                        }
+                        Field::Nbits => {
+                            if nbits.is_some() {
+                                return Err(de::Error::duplicate_field("nbits"));
+                            }
+                            nbits = Some(map.next_value()?);
+                        }
+                    }
+                }
+                let storage = storage.ok_or_else(|| de::Error::missing_field("storage"))?;
+                let nbits = nbits.ok_or_else(|| de::Error::missing_field("nbits"))?;
+                Ok(BitVecSimd { storage, nbits })
+            }
+        }
+
+        const FIELDS: &'static [&'static str] = &["storage", "nbits"];
+        deserializer.deserialize_struct("BitVecSimd", FIELDS, BitVecSimdVisitor { phantom: PhantomData })
+    }
+}
+
+
 
 /// Proc macro can not export BitVec
 /// macro_rules! can not cancot ident
@@ -1150,6 +1283,26 @@ impl_trait! {(BitXorAssign< &mut BitVecSimd<A, L> >), (BitVecSimd<A, L>), { impl
 
 // Declare the default BitVec type
 pub type BitVec = BitVecSimd<[u64x4; 4], 4>;
+
+#[test]
+fn test_ser_de() {
+    use serde_test::{Token, assert_tokens};
+
+    let mut bitvec = BitVec::ones(10);
+
+    assert_tokens(&bitvec, &[
+        Token::Map { len: Some(3) },
+        Token::Char('b'),
+        Token::I32(20),
+
+        Token::Char('a'),
+        Token::I32(10),
+
+        Token::Char('c'),
+        Token::I32(30),
+        Token::MapEnd,
+    ]);
+}
 
 #[test]
 fn test_bit_to_len() {

@@ -269,7 +269,6 @@ impl_BitContainer!(u64x4, u64, 4);
 ///
 /// see the module's document for examples and details.
 ///
-
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -279,25 +278,36 @@ where
     A::Item: BitContainer<L>,
 {
     // internal representation of bitvec
-    #[cfg_attr(feature = "use_serde", serde(serialize_with = "transmute_serialize"))]
-    #[cfg_attr(feature = "use_serde", serde(deserialize_with = "from_seq_deserialize"))]
+    #[cfg_attr(feature = "use_serde", serde(serialize_with = "serialize"))]
+    #[cfg_attr(feature = "use_serde", serde(deserialize_with = "deserialize"))]
     storage: SmallVec<A>,
     // actual number of bits exists in storage
     nbits: usize,
 }
 
 #[cfg(feature = "use_serde")]
-fn transmute_serialize<S, A: Array, const L: usize>(
-    x: &SmallVec<A>,
-    s: S,
-) -> Result<S::Ok, S::Error>
+fn serialize<S, A: Array, const L: usize>(x: &SmallVec<A>, s: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
     A::Item: BitContainer<L>,
 {
-    let mut seq = s.serialize_seq(None)?;
-    for container in x.iter() {
+    let last_count = if let Some(last) = x.last() {
+        last.to_array()
+            .iter()
+            .take_while(|e| **e != <A::Item as BitContainer<L>>::ZERO_ELEMENT)
+            .count()
+    } else {
+        0
+    };
+
+    let mut seq = s.serialize_seq(Some((x.len() - 1) * L + last_count))?;
+    for container in &x[0..x.len() - 1] {
         for element in container.to_array().iter() {
+            seq.serialize_element(element)?;
+        }
+    }
+    if let Some(last) = x.last() {
+        for element in last.to_array().iter().take(last_count) {
             seq.serialize_element(element)?;
         }
     }
@@ -305,9 +315,7 @@ where
 }
 
 #[cfg(feature = "use_serde")]
-fn from_seq_deserialize<'de, D, A, T, const L: usize>(
-    deserializer: D,
-) -> Result<SmallVec<A>, D::Error>
+fn deserialize<'de, D, A, T, const L: usize>(deserializer: D) -> Result<SmallVec<A>, D::Error>
 where
     D: Deserializer<'de>,
     A: Array,
@@ -340,13 +348,19 @@ where
     let visitor = SeqVisitor(PhantomData);
     let s: Vec<T> = deserializer.deserialize_seq(visitor)?;
 
-    let l = s.len() / L;
-    let mut small_vec = SmallVec::<A>::with_capacity(l);
-    for i in 0..l {
+    let len = (s.len() + (L - 1)) / L;
+    let mut small_vec = SmallVec::<A>::with_capacity(len);
+    for i in 0..len {
         let k = i * L;
-        let mut slice: [T; L] = [T::default(); L];
-        slice.clone_from_slice(&s[k..k + L]);
-        small_vec.push(slice.into());
+        let mut arr: [T; L] = [T::default(); L];
+        if k + L < len {
+            arr.clone_from_slice(&s[k..k + L]);
+        } else {
+            for j in k..len {
+                arr[j] = s[j];
+            }
+        }
+        small_vec.push(arr.into());
     }
     Ok(small_vec)
 }
@@ -1766,17 +1780,20 @@ fn test_bitvec_display() {
 #[test]
 fn test_ser_de() {
     let bitvec = BitVec::ones(5);
-    serde_test::assert_tokens(&bitvec, &[
-        serde_test::Token::Struct { name: "BitVecSimd", len: 2 },
-        serde_test::Token::Str("storage"),
-        serde_test::Token::Seq { len: None },
-        serde_test::Token::U64(31),
-        serde_test::Token::U64(0),
-        serde_test::Token::U64(0),
-        serde_test::Token::U64(0),
-        serde_test::Token::SeqEnd,
-        serde_test::Token::Str("nbits"),
-        serde_test::Token::U64(5),
-        serde_test::Token::StructEnd,
-    ]);
+    serde_test::assert_tokens(
+        &bitvec,
+        &[
+            serde_test::Token::Struct {
+                name: "BitVecSimd",
+                len: 2,
+            },
+            serde_test::Token::Str("storage"),
+            serde_test::Token::Seq { len: Some(1) },
+            serde_test::Token::U64(31),
+            serde_test::Token::SeqEnd,
+            serde_test::Token::Str("nbits"),
+            serde_test::Token::U64(5),
+            serde_test::Token::StructEnd,
+        ],
+    );
 }

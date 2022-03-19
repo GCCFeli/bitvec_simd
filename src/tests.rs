@@ -373,6 +373,23 @@ fn test_bitvec_display() {
 #[cfg(feature = "use_serde")]
 #[test]
 fn test_ser_de() {
+    let bitvec = BitVec::ones(0);
+    serde_test::assert_tokens(
+        &bitvec,
+        &[
+            serde_test::Token::Struct {
+                name: "BitVecSimd",
+                len: 2,
+            },
+            serde_test::Token::Str("storage"),
+            serde_test::Token::Seq { len: Some(0) },
+            serde_test::Token::SeqEnd,
+            serde_test::Token::Str("nbits"),
+            serde_test::Token::U64(0),
+            serde_test::Token::StructEnd,
+        ],
+    );
+
     let bitvec = BitVec::ones(5);
     serde_test::assert_tokens(
         &bitvec,

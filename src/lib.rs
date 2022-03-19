@@ -71,7 +71,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use core::{
-    fmt,
+    fmt, cmp,
     ops::{
         Add, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, Not, Shl, Shr,
         Sub,
@@ -1351,8 +1351,9 @@ where
         0
     };
 
-    let mut seq = s.serialize_seq(Some((x.len() - 1) * L + last_count))?;
-    for block in &x[0..x.len() - 1] {
+    let prefix_len = cmp::max(x.len(), 1) - 1;
+    let mut seq = s.serialize_seq(Some(prefix_len * L + last_count))?;
+    for block in &x[0..prefix_len] {
         for element in block.to_array().iter() {
             seq.serialize_element(element)?;
         }

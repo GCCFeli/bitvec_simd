@@ -1,14 +1,16 @@
 [package]
 name = "bitvec_simd"
-description = "bitvec implemented with wide"
-authors = ["GCCFeli"]
-version = "0.20.2"
+version = "0.20.3"
+authors = ["GCCFeli <feli@gccfeli.cn>"]
 edition = "2021"
-homepage = "https://github.com/gccfeli/bitvec_simd"
-license = "MIT"
+description = "bitvec with SIMD"
+documentation = "https://docs.rs/bitvec_simd"
 readme = "README.md"
+homepage = "https://github.com/gccfeli/bitvec_simd"
 repository = "https://github.com/gccfeli/bitvec_simd"
-keywords = ["bitvector"]
+license = "MIT"
+keywords = ["bitvector", "bitvec", "bitmap", "simd", "bit"]
+categories = ["data-structures"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

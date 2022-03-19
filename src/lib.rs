@@ -71,7 +71,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use core::{
-    fmt, cmp,
+    fmt,
     ops::{
         Add, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, Not, Shl, Shr,
         Sub,
@@ -82,7 +82,7 @@ use smallvec::{Array, SmallVec};
 use wide::*;
 
 #[cfg(feature = "use_serde")]
-use core::marker::PhantomData;
+use core::{cmp, marker::PhantomData};
 #[cfg(feature = "use_serde")]
 use serde::{
     de::{DeserializeOwned, Deserializer, SeqAccess, Visitor},

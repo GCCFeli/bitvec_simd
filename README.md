@@ -6,7 +6,8 @@ A rust library for bit vector, featuring:
 - SIMD accelerated via [wide](https://crates.io/crates/wide).
 - Serialize and deserialize via [serde](https://crates.io/crates/serde).
 - Stack allocation when bit count is small via [smallvec](https://crates.io/crates/smallvec).
-- *Many* performance optimisations
+- `#![no_std]` support.
+- *Many* performance optimisations.
 
 ## Usage
 
@@ -14,7 +15,21 @@ Add `bitvec_simd` to `Cargo.toml`:
 
 ```toml
 [dependencies]
-bitvec_simd = "0.18"
+bitvec_simd = "0.19"
+```
+
+If you want [serde](https://crates.io/crates/serde) support, include the feature like this:
+
+```toml
+[dependencies]
+bitvec_simd = { version = "0.19", features = ["serde"] }
+```
+
+If you want to use bitvec_simd in a program that has `#![no_std]`, just drop default features:
+
+```toml
+[dependencies]
+bitvec_simd = { version = "0.19", default-features = false }
 ```
 
 ### Example
@@ -39,8 +54,8 @@ assert_eq!(new_bitvec, new_bitvec2);
 
 Compared on AMD Ryzen 7 3700X, aginst:
 
-* [bit\_vec 0.6.3](https://docs.rs/bit-vec/0.6.3/bit_vec/index.html)
-* [bitvec 0.22.3](https://docs.rs/bitvec/0.22.3/bitvec/index.html)
+* [bit\_vec 0.6.3](https://crates.io/crates/bit-vec)
+* [bitvec 1.0.0](https://crates.io/crates/bitvec)
 
 ```
 $ cargo bench       
@@ -57,7 +72,7 @@ Found 4 outliers among 100 measurements (4.00%)
   1 (1.00%) high mild
   3 (3.00%) high severe
 
-bitvec 0.22             time:   [598.79 us 599.30 us 599.99 us]
+bitvec 1.0              time:   [598.79 us 599.30 us 599.99 us]
                         change: [-0.1615% +0.1525% +0.3552%] (p = 0.30 > 0.05)
                         No change in performance detected.
 Found 14 outliers among 100 measurements (14.00%)
@@ -77,7 +92,7 @@ Found 4 outliers among 100 measurements (4.00%)
   3 (3.00%) high mild
   1 (1.00%) high severe
 
-bitvec 0.22 with creation
+bitvec 1.0 with creation
                         time:   [220.12 us 220.81 us 221.71 us]
                         change: [-0.7438% -0.2211% +0.1436%] (p = 0.41 > 0.05)
                         No change in performance detected.

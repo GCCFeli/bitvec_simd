@@ -1,4 +1,4 @@
-//! ## BitVec implemented with [wide](https://github.com/Lokathor/wide)
+//! ## BitVec implemented with [wide](https://crates.io/crates/wide)
 //!
 //! BitVec represents numbers by the position of bits. For example, for the set $\{1,3,5\}$, we
 //! can represent it by a just a byte `010101000` -- the most left (high) bit represent if `0`
@@ -57,8 +57,21 @@
 //!
 //! run `cargo bench` to see the benchmarks on your device.
 
-use std::{
-    fmt::{Binary, Display},
+#![no_std]
+
+#[cfg(any(test, feature = "std"))]
+#[macro_use]
+extern crate std;
+#[cfg(feature = "std")]
+use std::vec::Vec;
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
+use core::{
+    fmt,
     ops::{
         Add, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, Not, Shl, Shr,
         Sub,
@@ -69,201 +82,13 @@ use smallvec::{Array, SmallVec};
 use wide::*;
 
 #[cfg(feature = "use_serde")]
+use core::marker::PhantomData;
+#[cfg(feature = "use_serde")]
 use serde::{
     de::{DeserializeOwned, Deserializer, SeqAccess, Visitor},
     ser::{SerializeSeq, Serializer},
     Deserialize, Serialize,
 };
-#[cfg(feature = "use_serde")]
-use std::{fmt, marker::PhantomData};
-
-// BitContainerElement is the element of a SIMD type BitContainer
-#[cfg(not(feature = "use_serde"))]
-pub trait BitContainerElement:
-    Not<Output = Self>
-    + BitAnd<Output = Self>
-    + BitOr<Output = Self>
-    + BitXor<Output = Self>
-    + Shl<u32, Output = Self>
-    + Shr<u32, Output = Self>
-    + BitAndAssign
-    + BitOrAssign
-    + Add<Output = Self>
-    + Sub<Output = Self>
-    + PartialEq
-    + Sized
-    + Copy
-    + Clone
-    + Binary
-    + Default
-{
-    const BIT_WIDTH: usize;
-    const ZERO: Self;
-    const ONE: Self;
-    const MAX: Self;
-
-    fn count_ones(self) -> u32;
-    fn leading_zeros(self) -> u32;
-    fn wrapping_shl(self, rhs: u32) -> Self;
-    fn wrapping_shr(self, rhs: u32) -> Self;
-    fn clear_high_bits(self, rhs: u32) -> Self;
-    fn clear_low_bits(self, rhs: u32) -> Self;
-}
-
-#[cfg(feature = "use_serde")]
-pub trait BitContainerElement:
-    Not<Output = Self>
-    + BitAnd<Output = Self>
-    + BitOr<Output = Self>
-    + BitXor<Output = Self>
-    + Shl<u32, Output = Self>
-    + Shr<u32, Output = Self>
-    + BitAndAssign
-    + BitOrAssign
-    + Add<Output = Self>
-    + Sub<Output = Self>
-    + PartialEq
-    + Sized
-    + Copy
-    + Clone
-    + Binary
-    + Default
-    + Serialize
-    + DeserializeOwned
-{
-    const BIT_WIDTH: usize;
-    const ZERO: Self;
-    const ONE: Self;
-    const MAX: Self;
-
-    fn count_ones(self) -> u32;
-    fn leading_zeros(self) -> u32;
-    fn wrapping_shl(self, rhs: u32) -> Self;
-    fn wrapping_shr(self, rhs: u32) -> Self;
-    fn clear_high_bits(self, rhs: u32) -> Self;
-    fn clear_low_bits(self, rhs: u32) -> Self;
-}
-
-macro_rules! impl_BitContainerElement {
-    ($type: ty, $zero: expr, $one: expr, $max: expr) => {
-        impl BitContainerElement for $type {
-            const BIT_WIDTH: usize = Self::BITS as usize;
-            const ZERO: Self = $zero;
-            const ONE: Self = $one;
-            const MAX: Self = $max;
-
-            #[inline]
-            fn count_ones(self) -> u32 {
-                Self::count_ones(self)
-            }
-
-            #[inline]
-            fn leading_zeros(self) -> u32 {
-                Self::leading_zeros(self)
-            }
-
-            #[inline]
-            fn wrapping_shl(self, rhs: u32) -> Self {
-                self.wrapping_shl(rhs)
-            }
-
-            #[inline]
-            fn wrapping_shr(self, rhs: u32) -> Self {
-                self.wrapping_shr(rhs)
-            }
-
-            #[inline]
-            fn clear_high_bits(self, rhs: u32) -> Self {
-                self.wrapping_shl(rhs).wrapping_shr(rhs)
-            }
-
-            #[inline]
-            fn clear_low_bits(self, rhs: u32) -> Self {
-                self.wrapping_shr(rhs).wrapping_shl(rhs)
-            }
-        }
-    };
-}
-
-impl_BitContainerElement!(u8, 0u8, 1u8, 0xFFu8);
-impl_BitContainerElement!(u16, 0u16, 1u16, 0xFFFFu16);
-impl_BitContainerElement!(u32, 0u32, 1u32, 0xFFFFFFFFu32);
-impl_BitContainerElement!(u64, 0u64, 1u64, 0xFFFFFFFFFFFFFFFFu64);
-
-// BitContainer is the basic building block for internal storage
-// BitVec is expected to be aligned properly
-pub trait BitContainer<const L: usize>:
-    Not<Output = Self>
-    + BitAnd<Output = Self>
-    + BitOr<Output = Self>
-    + BitXor<Output = Self>
-    + Add<Output = Self>
-    + Sub<Output = Self>
-    + Eq
-    + Sized
-    + Copy
-    + Clone
-    + std::fmt::Debug
-    + From<Self::Element>
-    + From<[Self::Element; L]>
-{
-    type Element: BitContainerElement;
-    const BIT_WIDTH: usize;
-    const ELEMENT_BIT_WIDTH: usize;
-    const LANES: usize;
-    const ZERO_ELEMENT: Self::Element;
-    const ONE_ELEMENT: Self::Element;
-    const MAX_ELEMENT: Self::Element;
-    const ZERO: Self;
-    const MAX: Self;
-    fn to_array(self) -> [Self::Element; L];
-    fn and_inplace(&mut self, rhs: &Self);
-    fn or_inplace(&mut self, rhs: &Self);
-    fn xor_inplace(&mut self, rhs: &Self);
-}
-
-macro_rules! impl_BitContainer {
-    ($type: ty, $elem_type: ty, $lanes: expr) => {
-        impl BitContainer<$lanes> for $type {
-            type Element = $elem_type;
-            const BIT_WIDTH: usize = <$type>::BITS as usize;
-            const ELEMENT_BIT_WIDTH: usize = <$elem_type>::BIT_WIDTH;
-            const LANES: usize = $lanes;
-            const ZERO_ELEMENT: $elem_type = <$elem_type>::ZERO;
-            const ONE_ELEMENT: $elem_type = <$elem_type>::ONE;
-            const MAX_ELEMENT: $elem_type = <$elem_type>::MAX;
-            const ZERO: Self = <$type>::ZERO;
-            const MAX: Self = <$type>::MAX;
-
-            #[inline]
-            fn to_array(self) -> [$elem_type; $lanes] {
-                <$type>::to_array(self)
-            }
-
-            #[inline]
-            fn and_inplace(&mut self, rhs: &Self) {
-                *self &= rhs;
-            }
-
-            #[inline]
-            fn or_inplace(&mut self, rhs: &Self) {
-                *self |= rhs;
-            }
-
-            #[inline]
-            fn xor_inplace(&mut self, rhs: &Self) {
-                *self ^= rhs;
-            }
-        }
-    };
-}
-
-impl_BitContainer!(u8x16, u8, 16);
-impl_BitContainer!(u16x8, u16, 8);
-impl_BitContainer!(u32x4, u32, 4);
-impl_BitContainer!(u32x8, u32, 8);
-impl_BitContainer!(u64x2, u64, 2);
-impl_BitContainer!(u64x4, u64, 4);
 
 /// Representation of a BitVec
 ///
@@ -275,7 +100,7 @@ impl_BitContainer!(u64x4, u64, 4);
 pub struct BitVecSimd<A, const L: usize>
 where
     A: Array + Index<usize>,
-    A::Item: BitContainer<L>,
+    A::Item: BitBlock<L>,
 {
     // internal representation of bitvec
     #[cfg_attr(feature = "use_serde", serde(serialize_with = "serialize"))]
@@ -283,86 +108,6 @@ where
     storage: SmallVec<A>,
     // actual number of bits exists in storage
     nbits: usize,
-}
-
-#[cfg(feature = "use_serde")]
-fn serialize<S, A: Array, const L: usize>(x: &SmallVec<A>, s: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-    A::Item: BitContainer<L>,
-{
-    let last_count = if let Some(last) = x.last() {
-        last.to_array()
-            .iter()
-            .take_while(|e| **e != <A::Item as BitContainer<L>>::ZERO_ELEMENT)
-            .count()
-    } else {
-        0
-    };
-
-    let mut seq = s.serialize_seq(Some((x.len() - 1) * L + last_count))?;
-    for container in &x[0..x.len() - 1] {
-        for element in container.to_array().iter() {
-            seq.serialize_element(element)?;
-        }
-    }
-    if let Some(last) = x.last() {
-        for element in last.to_array().iter().take(last_count) {
-            seq.serialize_element(element)?;
-        }
-    }
-    seq.end()
-}
-
-#[cfg(feature = "use_serde")]
-fn deserialize<'de, D, A, T, const L: usize>(deserializer: D) -> Result<SmallVec<A>, D::Error>
-where
-    D: Deserializer<'de>,
-    A: Array,
-    A::Item: From<[T; L]>,
-    T: DeserializeOwned + Clone + Default + Copy,
-{
-    struct SeqVisitor<K>(PhantomData<fn() -> K>);
-
-    impl<'de, K> Visitor<'de> for SeqVisitor<K>
-    where
-        K: Deserialize<'de>,
-    {
-        type Value = Vec<K>;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("a nonempty sequence of numbers")
-        }
-
-        fn visit_seq<S>(self, mut seq: S) -> Result<Vec<K>, S::Error>
-        where
-            S: SeqAccess<'de>,
-        {
-            let mut result = Vec::new();
-            while let Some(value) = seq.next_element()? {
-                result.push(value);
-            }
-            Ok(result)
-        }
-    }
-    let visitor = SeqVisitor(PhantomData);
-    let s: Vec<T> = deserializer.deserialize_seq(visitor)?;
-
-    let len = (s.len() + (L - 1)) / L;
-    let mut small_vec = SmallVec::<A>::with_capacity(len);
-    for i in 0..len {
-        let k = i * L;
-        let mut arr: [T; L] = [T::default(); L];
-        if k + L < len {
-            arr.clone_from_slice(&s[k..k + L]);
-        } else {
-            for j in k..len {
-                arr[j] = s[j];
-            }
-        }
-        small_vec.push(arr.into());
-    }
-    Ok(small_vec)
 }
 
 /// Proc macro can not export BitVec
@@ -407,7 +152,7 @@ macro_rules! impl_operation {
 impl<A, const L: usize> BitVecSimd<A, L>
 where
     A: Array + Index<usize>,
-    A::Item: BitContainer<L>,
+    A::Item: BitBlock<L>,
 {
     // convert total bit to length
     // input: Number of bits
@@ -419,7 +164,7 @@ where
     //
     // notice that this result represents the length of vector
     // so if 3. is 0, it means no extra bits after filling bytes
-    // return (length of storage, u64 of last container, bit of last elem)
+    // return (length of storage, u64 of last block, bit of last elem)
     // any bits > length of last elem should be set to 0
     #[inline]
     fn bit_to_len(nbits: usize) -> (usize, usize, usize) {
@@ -433,9 +178,9 @@ where
     #[inline]
     fn set_bit(
         flag: bool,
-        bytes: <A::Item as BitContainer<L>>::Element,
+        bytes: <A::Item as BitBlock<L>>::Element,
         offset: u32,
-    ) -> <A::Item as BitContainer<L>>::Element {
+    ) -> <A::Item as BitBlock<L>>::Element {
         match flag {
             true => bytes | A::Item::ONE_ELEMENT.wrapping_shl(offset),
             false => bytes & !A::Item::ONE_ELEMENT.wrapping_shl(offset),
@@ -553,7 +298,7 @@ where
     /// assert_eq!(bitvec.get(2), Some(false));
     /// assert_eq!(bitvec.get(3), None);
     /// ```
-    pub fn from_slice_copy(slice: &[<A::Item as BitContainer<L>>::Element], nbits: usize) -> Self {
+    pub fn from_slice_copy(slice: &[<A::Item as BitBlock<L>>::Element], nbits: usize) -> Self {
         let len = (nbits + A::Item::ELEMENT_BIT_WIDTH - 1) / A::Item::ELEMENT_BIT_WIDTH;
         assert!(len <= slice.len());
 
@@ -594,7 +339,7 @@ where
     ///   space. That is, the infinite-precision sum, **in bytes** must fit in a usize.
     ///
     pub unsafe fn from_raw_copy(
-        ptr: *const <A::Item as BitContainer<L>>::Element,
+        ptr: *const <A::Item as BitBlock<L>>::Element,
         buffer_len: usize,
         nbits: usize,
     ) -> Self {
@@ -670,7 +415,7 @@ where
     }
 
     fn clear_arr_high_bits(
-        arr: &mut [<A::Item as BitContainer<L>>::Element],
+        arr: &mut [<A::Item as BitBlock<L>>::Element],
         bytes: usize,
         bits: usize,
     ) {
@@ -686,7 +431,7 @@ where
     }
 
     fn fill_arr_high_bits(
-        arr: &mut [<A::Item as BitContainer<L>>::Element],
+        arr: &mut [<A::Item as BitBlock<L>>::Element],
         bytes: usize,
         bits: usize,
         bytes_max: usize,
@@ -1227,7 +972,7 @@ where
 impl<A, I: Iterator<Item = bool>, const L: usize> From<I> for BitVecSimd<A, L>
 where
     A: Array + Index<usize>,
-    A::Item: BitContainer<L>,
+    A::Item: BitBlock<L>,
 {
     fn from(i: I) -> Self {
         Self::from_bool_iterator(i)
@@ -1244,7 +989,7 @@ macro_rules! impl_trait {
         impl<A, const L: usize> $( $name )+ for $( $name1 )+
         where
             A: Array + Index<usize>,
-            A::Item: BitContainer<L>,
+            A::Item: BitBlock<L>,
         { $( $body )* }
     };
 }
@@ -1301,10 +1046,10 @@ impl_trait! {
 }
 
 impl_trait! {
-    (Display),
+    (fmt::Display),
     (BitVecSimd<A, L>),
     {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             for i in 0..self.nbits {
                 write!(f, "{}", if self.get_unchecked(i) { 1 } else { 0 })?;
             }
@@ -1403,8 +1148,276 @@ impl_trait! {(BitXorAssign), (BitVecSimd<A, L>), { impl_bit_assign_fn!((Self), b
 impl_trait! {(BitXorAssign< &BitVecSimd<A, L> >), (BitVecSimd<A, L>), { impl_bit_assign_fn!((&BitVecSimd<A, L>), bitxor_assign, xor_inplace); } }
 impl_trait! {(BitXorAssign< &mut BitVecSimd<A, L> >), (BitVecSimd<A, L>), { impl_bit_assign_fn!((&mut BitVecSimd<A, L>), bitxor_assign, xor_inplace); } }
 
+// BitBlockElement is the element of a SIMD type BitBlock
+#[cfg(not(feature = "use_serde"))]
+pub trait BitBlockElement:
+    Not<Output = Self>
+    + BitAnd<Output = Self>
+    + BitOr<Output = Self>
+    + BitXor<Output = Self>
+    + Shl<u32, Output = Self>
+    + Shr<u32, Output = Self>
+    + BitAndAssign
+    + BitOrAssign
+    + Add<Output = Self>
+    + Sub<Output = Self>
+    + PartialEq
+    + Sized
+    + Copy
+    + Clone
+    + fmt::Binary
+    + Default
+{
+    const BIT_WIDTH: usize;
+    const ZERO: Self;
+    const ONE: Self;
+    const MAX: Self;
+
+    fn count_ones(self) -> u32;
+    fn leading_zeros(self) -> u32;
+    fn wrapping_shl(self, rhs: u32) -> Self;
+    fn wrapping_shr(self, rhs: u32) -> Self;
+    fn clear_high_bits(self, rhs: u32) -> Self;
+    fn clear_low_bits(self, rhs: u32) -> Self;
+}
+
+#[cfg(feature = "use_serde")]
+pub trait BitBlockElement:
+    Not<Output = Self>
+    + BitAnd<Output = Self>
+    + BitOr<Output = Self>
+    + BitXor<Output = Self>
+    + Shl<u32, Output = Self>
+    + Shr<u32, Output = Self>
+    + BitAndAssign
+    + BitOrAssign
+    + Add<Output = Self>
+    + Sub<Output = Self>
+    + PartialEq
+    + Sized
+    + Copy
+    + Clone
+    + fmt::Binary
+    + Default
+    + Serialize
+    + DeserializeOwned
+{
+    const BIT_WIDTH: usize;
+    const ZERO: Self;
+    const ONE: Self;
+    const MAX: Self;
+
+    fn count_ones(self) -> u32;
+    fn leading_zeros(self) -> u32;
+    fn wrapping_shl(self, rhs: u32) -> Self;
+    fn wrapping_shr(self, rhs: u32) -> Self;
+    fn clear_high_bits(self, rhs: u32) -> Self;
+    fn clear_low_bits(self, rhs: u32) -> Self;
+}
+
+macro_rules! impl_BitBlockElement {
+    ($type: ty, $zero: expr, $one: expr, $max: expr) => {
+        impl BitBlockElement for $type {
+            const BIT_WIDTH: usize = Self::BITS as usize;
+            const ZERO: Self = $zero;
+            const ONE: Self = $one;
+            const MAX: Self = $max;
+
+            #[inline]
+            fn count_ones(self) -> u32 {
+                Self::count_ones(self)
+            }
+
+            #[inline]
+            fn leading_zeros(self) -> u32 {
+                Self::leading_zeros(self)
+            }
+
+            #[inline]
+            fn wrapping_shl(self, rhs: u32) -> Self {
+                self.wrapping_shl(rhs)
+            }
+
+            #[inline]
+            fn wrapping_shr(self, rhs: u32) -> Self {
+                self.wrapping_shr(rhs)
+            }
+
+            #[inline]
+            fn clear_high_bits(self, rhs: u32) -> Self {
+                self.wrapping_shl(rhs).wrapping_shr(rhs)
+            }
+
+            #[inline]
+            fn clear_low_bits(self, rhs: u32) -> Self {
+                self.wrapping_shr(rhs).wrapping_shl(rhs)
+            }
+        }
+    };
+}
+
+impl_BitBlockElement!(u8, 0u8, 1u8, 0xFFu8);
+impl_BitBlockElement!(u16, 0u16, 1u16, 0xFFFFu16);
+impl_BitBlockElement!(u32, 0u32, 1u32, 0xFFFFFFFFu32);
+impl_BitBlockElement!(u64, 0u64, 1u64, 0xFFFFFFFFFFFFFFFFu64);
+
+// BitBlock is the basic building block for internal storage
+// BitVec is expected to be aligned properly
+pub trait BitBlock<const L: usize>:
+    Not<Output = Self>
+    + BitAnd<Output = Self>
+    + BitOr<Output = Self>
+    + BitXor<Output = Self>
+    + Add<Output = Self>
+    + Sub<Output = Self>
+    + Eq
+    + Sized
+    + Copy
+    + Clone
+    + fmt::Debug
+    + From<Self::Element>
+    + From<[Self::Element; L]>
+{
+    type Element: BitBlockElement;
+    const BIT_WIDTH: usize;
+    const ELEMENT_BIT_WIDTH: usize;
+    const LANES: usize;
+    const ZERO_ELEMENT: Self::Element;
+    const ONE_ELEMENT: Self::Element;
+    const MAX_ELEMENT: Self::Element;
+    const ZERO: Self;
+    const MAX: Self;
+    fn to_array(self) -> [Self::Element; L];
+    fn and_inplace(&mut self, rhs: &Self);
+    fn or_inplace(&mut self, rhs: &Self);
+    fn xor_inplace(&mut self, rhs: &Self);
+}
+
+macro_rules! impl_BitBlock {
+    ($type: ty, $elem_type: ty, $lanes: expr) => {
+        impl BitBlock<$lanes> for $type {
+            type Element = $elem_type;
+            const BIT_WIDTH: usize = <$type>::BITS as usize;
+            const ELEMENT_BIT_WIDTH: usize = <$elem_type>::BIT_WIDTH;
+            const LANES: usize = $lanes;
+            const ZERO_ELEMENT: $elem_type = <$elem_type>::ZERO;
+            const ONE_ELEMENT: $elem_type = <$elem_type>::ONE;
+            const MAX_ELEMENT: $elem_type = <$elem_type>::MAX;
+            const ZERO: Self = <$type>::ZERO;
+            const MAX: Self = <$type>::MAX;
+
+            #[inline]
+            fn to_array(self) -> [$elem_type; $lanes] {
+                <$type>::to_array(self)
+            }
+
+            #[inline]
+            fn and_inplace(&mut self, rhs: &Self) {
+                *self &= rhs;
+            }
+
+            #[inline]
+            fn or_inplace(&mut self, rhs: &Self) {
+                *self |= rhs;
+            }
+
+            #[inline]
+            fn xor_inplace(&mut self, rhs: &Self) {
+                *self ^= rhs;
+            }
+        }
+    };
+}
+
+impl_BitBlock!(u8x16, u8, 16);
+impl_BitBlock!(u16x8, u16, 8);
+impl_BitBlock!(u32x4, u32, 4);
+impl_BitBlock!(u32x8, u32, 8);
+impl_BitBlock!(u64x2, u64, 2);
+impl_BitBlock!(u64x4, u64, 4);
+
 // Declare the default BitVec type
 pub type BitVec = BitVecSimd<[u64x4; 4], 4>;
+
+#[cfg(feature = "use_serde")]
+fn serialize<S, A: Array, const L: usize>(x: &SmallVec<A>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+    A::Item: BitBlock<L>,
+{
+    let last_count = if let Some(last) = x.last() {
+        last.to_array()
+            .iter()
+            .take_while(|e| **e != <A::Item as BitBlock<L>>::ZERO_ELEMENT)
+            .count()
+    } else {
+        0
+    };
+
+    let mut seq = s.serialize_seq(Some((x.len() - 1) * L + last_count))?;
+    for block in &x[0..x.len() - 1] {
+        for element in block.to_array().iter() {
+            seq.serialize_element(element)?;
+        }
+    }
+    if let Some(last) = x.last() {
+        for element in last.to_array().iter().take(last_count) {
+            seq.serialize_element(element)?;
+        }
+    }
+    seq.end()
+}
+
+#[cfg(feature = "use_serde")]
+fn deserialize<'de, D, A, T, const L: usize>(deserializer: D) -> Result<SmallVec<A>, D::Error>
+where
+    D: Deserializer<'de>,
+    A: Array,
+    A::Item: From<[T; L]>,
+    T: DeserializeOwned + Clone + Default + Copy,
+{
+    struct SeqVisitor<K>(PhantomData<fn() -> K>);
+
+    impl<'de, K> Visitor<'de> for SeqVisitor<K>
+    where
+        K: Deserialize<'de>,
+    {
+        type Value = Vec<K>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a nonempty sequence of numbers")
+        }
+
+        fn visit_seq<S>(self, mut seq: S) -> Result<Vec<K>, S::Error>
+        where
+            S: SeqAccess<'de>,
+        {
+            let mut result = Vec::new();
+            while let Some(value) = seq.next_element()? {
+                result.push(value);
+            }
+            Ok(result)
+        }
+    }
+    let visitor = SeqVisitor(PhantomData);
+    let s: Vec<T> = deserializer.deserialize_seq(visitor)?;
+
+    let len = (s.len() + (L - 1)) / L;
+    let mut small_vec = SmallVec::<A>::with_capacity(len);
+    for i in 0..len {
+        let k = i * L;
+        let mut arr: [T; L] = [T::default(); L];
+        if k + L < len {
+            arr.clone_from_slice(&s[k..k + L]);
+        } else {
+            for j in k..len {
+                arr[j] = s[j];
+            }
+        }
+        small_vec.push(arr.into());
+    }
+    Ok(small_vec)
+}
 
 #[cfg(test)]
 mod tests;

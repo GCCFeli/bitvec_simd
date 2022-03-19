@@ -2,7 +2,7 @@
 name = "bitvec_simd"
 description = "bitvec implemented with wide"
 authors = ["GCCFeli"]
-version = "0.18.0"
+version = "0.19.0"
 edition = "2021"
 homepage = "https://github.com/gccfeli/bitvec_simd"
 license = "MIT"
@@ -13,12 +13,14 @@ keywords = ["bitvector"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-use_serde = []
+default = ["std"]
+use_serde = ["serde"]
+std = []
 
 [dependencies]
 wide = "0.7"
 smallvec = { version = "1.8", features = [ "const_generics", "serde" ] }
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"], optional = true }
 
 [dev-dependencies]
 criterion = "0.3"

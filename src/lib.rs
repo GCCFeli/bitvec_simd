@@ -1336,9 +1336,6 @@ impl_BitBlock!(u32x8, u32, 8);
 impl_BitBlock!(u64x2, u64, 2);
 impl_BitBlock!(u64x4, u64, 4);
 
-// Declare the default BitVec type
-pub type BitVec = BitVecSimd<[u64x4; 4], 4>;
-
 #[cfg(feature = "use_serde")]
 fn serialize<S, A: Array, const L: usize>(x: &SmallVec<A>, s: S) -> Result<S::Ok, S::Error>
 where
@@ -1407,17 +1404,20 @@ where
     for i in 0..len {
         let k = i * L;
         let mut arr: [T; L] = [T::default(); L];
-        if k + L < len {
+        if k + L < len * L {
             arr.clone_from_slice(&s[k..k + L]);
         } else {
-            for j in k..len {
-                arr[j] = s[j];
+            for j in k..s.len() {
+                arr[j - k] = s[j];
             }
         }
         small_vec.push(arr.into());
     }
     Ok(small_vec)
 }
+
+// Declare the default BitVec type
+pub type BitVec = BitVecSimd<[u64x4; 4], 4>;
 
 #[cfg(test)]
 mod tests;

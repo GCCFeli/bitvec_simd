@@ -390,4 +390,26 @@ fn test_ser_de() {
             serde_test::Token::StructEnd,
         ],
     );
+
+    type BitVec32 = BitVecSimd<[u32x8; 4], 8>;
+
+    let bitvec = BitVec32::ones(66);
+    serde_test::assert_tokens(
+        &bitvec,
+        &[
+            serde_test::Token::Struct {
+                name: "BitVecSimd",
+                len: 2,
+            },
+            serde_test::Token::Str("storage"),
+            serde_test::Token::Seq { len: Some(3) },
+            serde_test::Token::U32(4294967295),
+            serde_test::Token::U32(4294967295),
+            serde_test::Token::U32(3),
+            serde_test::Token::SeqEnd,
+            serde_test::Token::Str("nbits"),
+            serde_test::Token::U64(66),
+            serde_test::Token::StructEnd,
+        ],
+    );
 }

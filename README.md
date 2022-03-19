@@ -15,21 +15,21 @@ Add `bitvec_simd` to `Cargo.toml`:
 
 ```toml
 [dependencies]
-bitvec_simd = "0.19"
+bitvec_simd = "0.20"
 ```
 
 If you want [serde](https://crates.io/crates/serde) support, include the feature like this:
 
 ```toml
 [dependencies]
-bitvec_simd = { version = "0.19", features = ["serde"] }
+bitvec_simd = { version = "0.20", features = ["serde"] }
 ```
 
 If you want to use bitvec_simd in a program that has `#![no_std]`, just drop default features:
 
 ```toml
 [dependencies]
-bitvec_simd = { version = "0.19", default-features = false }
+bitvec_simd = { version = "0.20", default-features = false }
 ```
 
 ### Example

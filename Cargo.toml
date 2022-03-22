@@ -1,8 +1,9 @@
 [package]
 name = "bitvec_simd"
-version = "0.20.3"
+version = "0.20.4"
 authors = ["GCCFeli <feli@gccfeli.cn>"]
 edition = "2021"
+rust-version = "1.56"
 description = "bitvec with SIMD"
 documentation = "https://docs.rs/bitvec_simd"
 readme = "README.md"

@@ -1,6 +1,6 @@
 # bitvec\_simd
 
-[![GHA Status]][GitHub Actions] [![Latest Version]][crates.io] [![Documentation]][docs.rs] ![License]
+[![GHA Status]][GitHub Actions] [![Latest Version]][crates.io] [![Documentation]][docs.rs] ![License] [![Minimum Supported Rust Version]][Rust 1.56]
 
 A rust library for bit vector, featuring:
 - SIMD accelerated via [wide](https://crates.io/crates/wide).
@@ -119,3 +119,6 @@ This project is licensed under [MIT License](https://opensource.org/licenses/MIT
 [Documentation]: https://docs.rs/bitvec_simd/badge.svg
 [docs.rs]: https://docs.rs/bitvec_simd
 [License]: https://img.shields.io/crates/l/bitvec_simd.svg
+[Minimum Supported Rust Version]: https://img.shields.io/badge/Rust-1.56+-blue?color=fc8d62&logo=rust
+[Rust 1.56]: https://github.com/rust-lang/rust/blob/master/RELEASES.md#version-1561-2021-11-01
+

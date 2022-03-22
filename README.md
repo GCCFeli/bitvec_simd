@@ -113,7 +113,7 @@ This project is licensed under [MIT License](https://opensource.org/licenses/MIT
   ([LICENSE-MIT](https://github.com/GCCFeli/bitvec_simd/blob/master/LICENSE)).
 
 [GHA Status]: https://github.com/GCCFeli/bitvec_simd/actions/workflows/rust.yml/badge.svg?event=push
-[GitHub Actions]: https://github.com/rust-random/rand/actions
+[GitHub Actions]: https://github.com/GCCFeli/bitvec_simd/actions
 [crates.io]: https://crates.io/crates/bitvec_simd
 [Latest Version]: https://img.shields.io/crates/v/bitvec_simd.svg
 [Documentation]: https://docs.rs/bitvec_simd/badge.svg

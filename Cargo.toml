@@ -1,6 +1,6 @@
 [package]
 name = "bitvec_simd"
-version = "0.20.4"
+version = "0.20.5"
 authors = ["GCCFeli <feli@gccfeli.cn>"]
 edition = "2021"
 rust-version = "1.56"

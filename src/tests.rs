@@ -49,6 +49,15 @@ fn test_bit_vec_leading_zeros() {
 }
 
 #[test]
+fn test_set_expands() {
+    let mut bitvec = BitVec::zeros(0);
+    for index in 0..2049 {
+        bitvec.set(index, true);
+        assert_eq!(bitvec.len(), index + 1);
+    }
+}
+
+#[test]
 fn test_bit_vec_resize() {
     for i in (0..3333).filter(|x| x % 13 == 0) {
         for j in (0..6666).filter(|x| x % 37 == 0) {

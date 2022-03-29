@@ -158,9 +158,9 @@ where
     // input: Number of bits
     // output:
     //
-    // 1. the number of Vector used
-    // 2. after filling 1, the remaining bytes should be filled
-    // 3. after filling 2, the remaining bits should be filled
+    // 1. the number of vectors completely used
+    // 2. after filling 1, the remaining elements which should be filled
+    // 3. after filling 2, the remaining bits which should be filled
     //
     // notice that this result represents the length of vector
     // so if 3. is 0, it means no extra bits after filling bytes
@@ -564,13 +564,14 @@ where
     /// assert_eq!(bitvec.get(14), Some(false));
     /// ```
     pub fn set(&mut self, index: usize, flag: bool) {
-        let (i, bytes, bits) = Self::bit_to_len(index);
         if self.nbits <= index {
+            let (i, bytes, bits) = Self::bit_to_len(index + 1);
             let new_len = if bytes > 0 || bits > 0 { i + 1 } else { i };
             self.storage
                 .extend((0..new_len - self.storage.len()).map(move |_| A::Item::ZERO));
             self.nbits = index + 1;
         }
+        let (i, bytes, bits) = Self::bit_to_len(index);
         let mut arr = self.storage[i].to_array();
         arr[bytes] = Self::set_bit(flag, arr[bytes], bits as u32);
         self.storage[i] = A::Item::from(arr);
